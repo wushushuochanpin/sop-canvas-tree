@@ -55,7 +55,7 @@ const { Title, Text } = Typography;
 // --- 1. 布局参数 ---
 const NODE_WIDTH = 80;
 const NODE_HEIGHT = 26;
-const RANK_SEP = 40;
+const RANK_SEP = 50;
 const NODE_SEP = 20;
 
 // --- 2. 布局算法 ---
@@ -380,12 +380,21 @@ const SOPEditorLayout = () => {
                 </Tag>
                 <span
                   style={{
-                    fontWeight: 500,
-                    color: isDraft ? "#999" : "#333",
+                    // 1. 字体设置在这里！！！
+                    // 这里的例子是【微软雅黑】，你想换楷体就复制上面的方案B
+                    fontFamily: '"Microsoft YaHei", "PingFang SC", sans-serif',
+
+                    fontWeight: 400, // 细一点
+                    color: isDraft ? "#bfbfbf" : "#595959",
+
+                    // ... 其他样式保持不变 ...
                     fontStyle: isDraft ? "italic" : "normal",
                     whiteSpace: "nowrap",
                     overflow: "hidden",
                     textOverflow: "ellipsis",
+                    display: "block",
+                    maxWidth: "100%",
+                    cursor: "default",
                   }}
                 >
                   {n.data.label || "(未命名)"}
@@ -496,7 +505,7 @@ const SOPEditorLayout = () => {
         flowEdges.push({
           ...e,
           type: "smoothstep",
-          pathOptions: { borderRadius: 15 },
+          pathOptions: { borderRadius: 1 },
           animated: false,
           style: { stroke: edgeColor, strokeWidth: 1.5 },
           markerEnd: {
