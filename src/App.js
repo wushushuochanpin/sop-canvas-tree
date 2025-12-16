@@ -53,7 +53,7 @@ const { Option } = Select;
 const { Title, Text } = Typography;
 
 // --- 1. 布局参数 ---
-const NODE_WIDTH = 160;
+const NODE_WIDTH = 100;
 const NODE_HEIGHT = 36;
 const RANK_SEP = 60;
 const NODE_SEP = 20;
