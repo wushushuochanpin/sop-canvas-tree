@@ -2,10 +2,10 @@ import dagre from "dagre";
 import { Position } from "reactflow";
 
 // --- 布局参数 ---
-export const NODE_WIDTH = 140; // 节点宽度
-export const NODE_HEIGHT = 28; // 节点高度
-export const RANK_SEP = 100; // 层级间距
-export const NODE_SEP = 20; // 节点间距
+export const NODE_WIDTH = 140;
+export const NODE_HEIGHT = 28;
+export const RANK_SEP = 100;
+export const NODE_SEP = 20;
 
 // --- 布局算法 ---
 export const getLayoutedElements = (nodes = [], edges = []) => {
@@ -45,13 +45,9 @@ export const getLayoutedElements = (nodes = [], edges = []) => {
 };
 
 // --- 核心数据处理 ---
-export const processGraphData = (
-  nodes = [],
-  edges = [],
-  collapsedIds = new Set()
-) => {
+export const processGraphData = (nodes = [], edges = [], collapsedIds = new Set()) => {
   if (!Array.isArray(nodes)) return [];
-
+  
   const nodeMap = new Map(
     nodes.map((n) => [
       n.id,
@@ -74,6 +70,7 @@ export const processGraphData = (
     }
   });
 
+  // 严谨逻辑：只有没有任何父级的才是 Root
   const roots = [];
   nodeMap.forEach((node) => {
     if (node.parentIds.length === 0) roots.push(node);
@@ -103,8 +100,10 @@ export const processGraphData = (
     node.childrenIds.forEach((childId, index) => {
       let childCode;
       if (node.computedCode === "0") {
+        // 根节点的直接子节点，序号从 1 开始 (1, 2, 3...)
         childCode = (index + 1).toString();
       } else {
+        // 其他子节点 (1.1, 1.2...)
         childCode = `${node.computedCode}.${index + 1}`;
       }
       traverse(childId, childCode, node.aggregatedData, isChildrenHidden);
@@ -133,13 +132,14 @@ export const buildTreeData = (nodes = [], edges = []) => {
     const children = getChildren(node.id);
     return {
       key: node.id,
-      title: node.data.label || "(未命名草稿)",
+      title: node.data.label || "(未命名)",
       code: node.computedCode,
       jumpTo: node.data.jumpTargetId,
       children: children.map((child) => recursiveBuild(child)),
     };
   };
 
+  // 只找真正的根节点
   const rootIds = nodes
     .filter((n) => !edges.find((e) => e.target === n.id))
     .map((n) => n.id);

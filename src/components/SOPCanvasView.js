@@ -14,15 +14,10 @@ import {
   PlusSquareOutlined,
   MinusSquareOutlined,
 } from "@ant-design/icons";
-import {
-  NODE_WIDTH,
-  NODE_HEIGHT,
-  getLayoutedElements,
-} from "../utils/graphLogic";
+import { NODE_WIDTH, NODE_HEIGHT, getLayoutedElements } from "../utils/graphLogic";
 
-const { Text } = Typography;
+const { Text: AntText } = Typography;
 
-// --- 内部 Wrapper 组件 ---
 const ReactFlowWrapper = ({
   rfNodes,
   rfEdges,
@@ -32,11 +27,11 @@ const ReactFlowWrapper = ({
 }) => {
   const { fitView } = useReactFlow();
   const instance = useReactFlow();
-
+  
   useEffect(() => {
     setRfInstance(instance);
   }, [instance, setRfInstance]);
-
+  
   useEffect(() => {
     const timer = setTimeout(() => {
       fitView({ padding: 0.1, duration: 300 });
@@ -68,15 +63,14 @@ const ReactFlowWrapper = ({
           borderRadius: 4,
         }}
       >
-        <Text type="secondary" style={{ fontSize: 10 }}>
+        <AntText type="secondary" style={{ fontSize: 10 }}>
           Auto Layout
-        </Text>
+        </AntText>
       </Panel>
     </ReactFlow>
   );
 };
 
-// --- 对外的主组件 ---
 const SOPCanvasView = ({
   sopData,
   visibleNodes,
@@ -85,11 +79,10 @@ const SOPCanvasView = ({
   editingNodeId,
   setRfInstance,
   handleNodeSelect,
-  handleJumpTo,
   toggleNodeCollapse,
-  layoutDeps,
+  layoutDeps
 }) => {
-  // --- React Flow Render Data 生成逻辑 ---
+  
   const { nodes: rfNodes, edges: rfEdges } = useMemo(() => {
     const flowNodes = visibleNodes.map((n) => {
       const isDraft = !n.data.label;
@@ -151,15 +144,19 @@ const SOPCanvasView = ({
                 >
                   {n.computedCode}
                 </Tag>
-                <Tooltip
-                  title={n.data.label}
-                  placement="topLeft"
+                <Tooltip 
+                  title={
+                    <div>
+                      <div style={{fontWeight: 'bold', marginBottom: 2}}>{n.data.label}</div>
+                      {n.data.description && <div style={{fontSize: 12, opacity: 0.9}}>{n.data.description}</div>}
+                    </div>
+                  } 
+                  placement="topLeft" 
                   mouseEnterDelay={0.3}
                 >
                   <span
                     style={{
-                      fontFamily:
-                        '"Microsoft YaHei", "PingFang SC", sans-serif',
+                      fontFamily: '"Microsoft YaHei", "PingFang SC", sans-serif',
                       fontWeight: 400,
                       color: isDraft ? "#bfbfbf" : "#595959",
                       fontStyle: isDraft ? "italic" : "normal",
@@ -188,16 +185,11 @@ const SOPCanvasView = ({
                 )}
                 {jumpInfo && (
                   <Tooltip
-                    title={`跳转至: [${jumpInfo.code}] ${jumpInfo.name}`}
+                    title={`存在跳转`}
                   >
                     <div
                       className="nodrag"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleJumpTo(n.data.jumpTargetId);
-                      }}
                       style={{
-                        cursor: "pointer",
                         background: "#fff1f0",
                         borderRadius: 2,
                         padding: "0 4px",
@@ -208,6 +200,7 @@ const SOPCanvasView = ({
                         color: "#cf1322",
                         fontSize: 9,
                         fontWeight: "bold",
+                        cursor: "default"
                       }}
                     >
                       ↬ {jumpInfo.code}
@@ -295,8 +288,7 @@ const SOPCanvasView = ({
     sopData.edges,
     editingNodeId,
     collapsedNodeIds,
-    handleJumpTo,
-    toggleNodeCollapse,
+    toggleNodeCollapse
   ]);
 
   return (

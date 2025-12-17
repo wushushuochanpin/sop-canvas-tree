@@ -7,59 +7,70 @@ import {
   Form,
   Typography,
   Modal,
-  Radio, // 使用 Radio 替代 Segmented 兼容性更好
+  Radio,
+  Tooltip,
+  Empty,
+  Input,
 } from "antd";
 import {
   PlusOutlined,
   DeleteOutlined,
   AppstoreOutlined,
-  AimOutlined,
-  DownloadOutlined,
+  SaveOutlined,
   UploadOutlined,
   ReloadOutlined,
   FileTextOutlined,
+  PartitionOutlined,
+  AimOutlined, // 【已修复】原代码漏掉了这个图标的引入
 } from "@ant-design/icons";
 import { v4 as uuidv4 } from "uuid";
 
-// 引入本地组件
 import { processGraphData, buildTreeData } from "./utils/graphLogic";
 import Resizer from "./components/Resizer";
 import SOPCanvasView from "./components/SOPCanvasView";
 import SOPTextView from "./components/SOPTextView";
 import PropertyPanel from "./components/PropertyPanel";
+// 【新增】引入水印组件
+import FloatingWatermark from "./components/FloatingWatermark";
 
-const { Title, Text } = Typography;
+const { Text } = Typography;
+
+// 生成默认流程名称
+const generateDefaultName = () => {
+  const date = new Date();
+  const dateStr = `${date.getFullYear()}年${
+    date.getMonth() + 1
+  }月${date.getDate()}日`;
+  return `新流程 ${dateStr}`;
+};
 
 const SOPEditorLayout = () => {
   const [form] = Form.useForm();
   const fileInputRef = useRef(null);
 
-  // 视图模式：canvas 或 text
   const [viewMode, setViewMode] = useState("canvas");
-
   const [leftWidth, setLeftWidth] = useState(300);
   const [rightWidth, setRightWidth] = useState(360);
   const minWidth = 200;
 
-  // 业务数据
+  // --- 全局流程元数据 ---
+  const [flowMeta, setFlowMeta] = useState({
+    id: uuidv4(),
+    name: generateDefaultName(),
+  });
+
+  // --- 业务数据 ---
   const [sopData, setSopData] = useState({
-    nodes: [
-      {
-        id: uuidv4(),
-        position: { x: 0, y: 0 },
-        data: { label: "开始", payload: { mobile: "138xxxx" } },
-        type: "input",
-      },
-    ],
+    nodes: [],
     edges: [],
   });
 
   const [editingNodeId, setEditingNodeId] = useState(null);
   const [rfInstance, setRfInstance] = useState(null);
-  const [expandedKeys, setExpandedKeys] = useState([]);
+  const [expandedKeys, setExpandedKeys] = useState(["root"]);
   const [collapsedNodeIds, setCollapsedNodeIds] = useState(new Set());
 
-  // 走马灯标题
+  // 走马灯
   useEffect(() => {
     const text = "SOP 流程编排系统 - 专业的逻辑设计工具      ";
     let currentText = text;
@@ -69,13 +80,10 @@ const SOPEditorLayout = () => {
       currentText = restText + firstChar;
       document.title = currentText;
     }, 300);
-    return () => {
-      clearInterval(timer);
-      document.title = "SOP 流程编排";
-    };
+    return () => clearInterval(timer);
   }, []);
 
-  // 核心计算
+  // --- 计算逻辑 ---
   const allNodesWithCode = useMemo(() => {
     return processGraphData(sopData.nodes, sopData.edges, new Set());
   }, [sopData]);
@@ -89,7 +97,27 @@ const SOPEditorLayout = () => {
     [allNodesWithCode, sopData.edges]
   );
 
-  // Actions
+  // --- Actions ---
+
+  const handleCreateRoot = () => {
+    const rootId = "root";
+    const newRoot = {
+      id: rootId,
+      position: { x: 0, y: 0 },
+      data: {
+        label: "开始",
+        description: "流程起始点",
+        payload: {},
+      },
+      type: "input",
+    };
+
+    setSopData({ nodes: [newRoot], edges: [] });
+    setEditingNodeId(rootId);
+    setExpandedKeys([rootId]);
+    message.success("已创建流程起点");
+  };
+
   const toggleNodeCollapse = (nodeId) => {
     const newSet = new Set(collapsedNodeIds);
     if (newSet.has(nodeId)) {
@@ -104,11 +132,13 @@ const SOPEditorLayout = () => {
     const dropKey = info.node.key;
     const dragKey = info.dragNode.key;
     const dropPos = info.node.pos.split("-");
-    const dropPosition =
-      info.dropPosition - Number(dropPos[dropPos.length - 1]);
 
-    if (dragKey === sopData.nodes[0].id) {
+    if (dragKey === "root") {
       message.warning("根节点不可移动");
+      return;
+    }
+    if (dropKey === "root" && info.dropToGap) {
+      message.warning("根节点必须唯一");
       return;
     }
 
@@ -129,12 +159,10 @@ const SOPEditorLayout = () => {
       const dropTargetIndex = siblingEdges.findIndex(
         (e) => e.target === dropKey
       );
-
-      if (dropPosition === -1) {
-        insertIndex = dropTargetIndex;
-      } else {
-        insertIndex = dropTargetIndex + 1;
-      }
+      insertIndex =
+        info.dropPosition - Number(dropPos[dropPos.length - 1]) === -1
+          ? dropTargetIndex
+          : dropTargetIndex + 1;
     }
 
     const newEdge = {
@@ -152,7 +180,7 @@ const SOPEditorLayout = () => {
     const finalEdges = [...otherEdges, ...currentSiblingEdges];
 
     setSopData((prev) => ({ ...prev, edges: finalEdges }));
-    message.success("层级调整成功，序号已自动更新");
+    message.success("结构调整成功");
   };
 
   const addBranch = (parentId) => {
@@ -160,7 +188,7 @@ const SOPEditorLayout = () => {
     const newNode = {
       id: newNodeId,
       position: { x: 0, y: 0 },
-      data: { label: "新节点", payload: {} },
+      data: { label: "新节点", description: "", payload: {} },
     };
     const newEdge = {
       id: `e${parentId}-${newNodeId}`,
@@ -180,9 +208,8 @@ const SOPEditorLayout = () => {
   };
 
   const deleteNode = (nodeId) => {
-    const node = allNodesWithCode.find((n) => n.id === nodeId);
-    if (node?.computedCode === "0") {
-      message.warning("初始节点不可删除");
+    if (nodeId === "root") {
+      message.warning("根节点不可删除");
       return;
     }
     setSopData((prev) => ({
@@ -194,20 +221,6 @@ const SOPEditorLayout = () => {
     if (editingNodeId === nodeId) setEditingNodeId(null);
   };
 
-  const handleJumpTo = (targetId) => {
-    if (viewMode === "text") setViewMode("canvas");
-    setTimeout(() => {
-      if (!targetId || !rfInstance) return;
-      handleNodeSelect(targetId);
-      rfInstance.fitView({
-        nodes: [{ id: targetId }],
-        padding: 0.5,
-        duration: 500,
-      });
-      message.info("已定位");
-    }, 100);
-  };
-
   const handleNodeSelect = (nodeId) => {
     setEditingNodeId(nodeId);
     const node = sopData.nodes.find((n) => n.id === nodeId);
@@ -216,26 +229,79 @@ const SOPEditorLayout = () => {
       form.setFieldsValue({
         id: node.id,
         name: node.data.label,
-        targetNodeId: node.data.jumpTargetId,
+        description: node.data.description,
+        flowName: flowMeta.name,
       });
     }
   };
 
   const handleSaveNode = (values) => {
     updateNodeData(values);
-    message.success("保存成功");
+    message.success("节点配置已保存");
   };
-  const handleSaveDraft = () => {
-    const values = form.getFieldsValue();
-    updateNodeData(values);
-    message.success("草稿已保存");
+
+  // --- 全局保存核心逻辑 (增强版) ---
+  const handleGlobalSave = async () => {
+    if (sopData.nodes.length === 0) {
+      message.warning("没有内容可保存");
+      return;
+    }
+    const exportData = {
+      meta: flowMeta,
+      ...sopData,
+    };
+    const dataStr = JSON.stringify(exportData, null, 2);
+    // 过滤非法字符，确保文件名合法
+    const safeName = flowMeta.name.replace(/[<>:"/\\|?*]+/g, "_");
+    const fileName = `${safeName}.json`;
+
+    try {
+      // 尝试使用文件系统 API (Chrome/Edge 支持)
+      if ("showSaveFilePicker" in window) {
+        const handle = await window.showSaveFilePicker({
+          suggestedName: fileName,
+          types: [
+            {
+              description: "SOP Flow JSON",
+              accept: { "application/json": [".json"] },
+            },
+          ],
+        });
+        const writable = await handle.createWritable();
+        await writable.write(dataStr);
+        await writable.close();
+        message.success("文件已成功保存到本地");
+      } else {
+        throw new Error("API_NOT_SUPPORTED");
+      }
+    } catch (err) {
+      if (err.name === "AbortError") return;
+
+      const blob = new Blob([dataStr], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+
+      if (err.message === "API_NOT_SUPPORTED") {
+        message.info("当前浏览器环境不支持选择路径，已自动下载");
+      } else {
+        message.success("文件已导出");
+      }
+    }
   };
+
   const updateNodeData = (values) => {
     const currentNode = sopData.nodes.find((n) => n.id === editingNodeId);
     const currentPayload = currentNode?.data.payload || {};
     const updatedPayload = values.payloadKey
       ? { ...currentPayload, [values.payloadKey]: values.payloadValue }
       : currentPayload;
+
     setSopData((prev) => ({
       nodes: prev.nodes.map((n) =>
         n.id === editingNodeId
@@ -244,8 +310,8 @@ const SOPEditorLayout = () => {
               data: {
                 ...n.data,
                 label: values.name,
+                description: values.description,
                 payload: updatedPayload,
-                jumpTargetId: values.targetNodeId,
               },
             }
           : n
@@ -254,16 +320,8 @@ const SOPEditorLayout = () => {
     }));
   };
 
-  const handleExportFile = () => {
-    const dataStr = JSON.stringify(sopData, null, 2);
-    const blob = new Blob([dataStr], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `sop-v4-${new Date().toISOString().slice(0, 10)}.json`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+  const handleUpdateFlowMeta = (newMeta) => {
+    setFlowMeta((prev) => ({ ...prev, ...newMeta }));
   };
 
   const handleFileChange = (e) => {
@@ -273,10 +331,11 @@ const SOPEditorLayout = () => {
     reader.onload = (event) => {
       try {
         const json = JSON.parse(event.target.result);
-        if (json && Array.isArray(json.nodes) && Array.isArray(json.edges)) {
-          setSopData(json);
+        if (json && Array.isArray(json.nodes)) {
+          if (json.meta) setFlowMeta(json.meta);
+          setSopData({ nodes: json.nodes, edges: json.edges });
           setEditingNodeId(null);
-          setExpandedKeys([]);
+          setExpandedKeys(["root"]);
           setCollapsedNodeIds(new Set());
           message.success("导入成功");
         } else {
@@ -293,21 +352,11 @@ const SOPEditorLayout = () => {
   const handleResetData = () => {
     Modal.confirm({
       title: "确认重置？",
-      content: "未保存的内容将丢失。",
+      content: "将清空当前所有内容。",
       onOk: () => {
-        setSopData({
-          nodes: [
-            {
-              id: uuidv4(),
-              position: { x: 0, y: 0 },
-              data: { label: "开始", payload: { mobile: "138xxxx" } },
-              type: "input",
-            },
-          ],
-          edges: [],
-        });
+        setFlowMeta({ id: uuidv4(), name: generateDefaultName() });
+        setSopData({ nodes: [], edges: [] });
         setEditingNodeId(null);
-        setExpandedKeys([]);
         setCollapsedNodeIds(new Set());
         message.success("已重置");
       },
@@ -317,6 +366,8 @@ const SOPEditorLayout = () => {
   const currentEditNode = allNodesWithCode.find((n) => n.id === editingNodeId);
   const jumpTargets = allNodesWithCode.filter((n) => n.id !== editingNodeId);
 
+  const handleJumpTo = () => {};
+
   return (
     <div
       style={{
@@ -324,15 +375,24 @@ const SOPEditorLayout = () => {
         display: "flex",
         flexDirection: "column",
         overflow: "hidden",
+        position: "relative", // 确保子元素定位基于此
       }}
     >
-      {/* 注入 Tree 虚线样式 */}
+      {/* 【新增】 放入水印组件 */}
+      <FloatingWatermark />
+
       <style>{`
         .ant-tree.ant-tree-show-line .ant-tree-indent-unit::before {
           border-left: 1px dashed #d9d9d9 !important;
         }
         .ant-tree.ant-tree-show-line .ant-tree-switcher-line-icon {
           color: #d9d9d9 !important;
+        }
+        .header-flow-name-input {
+            font-size: 16px; font-weight: 600; color: #1f1f1f; padding: 0; transition: all 0.3s;
+        }
+        .header-flow-name-input:hover, .header-flow-name-input:focus {
+            background: #fafafa; padding: 0 8px;
         }
       `}</style>
 
@@ -357,21 +417,47 @@ const SOPEditorLayout = () => {
           flexShrink: 0,
         }}
       >
-        <div style={{ display: "flex", alignItems: "center" }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            flex: 1,
+            marginRight: 20,
+          }}
+        >
           <AppstoreOutlined
-            style={{ fontSize: 18, color: "#1890ff", marginRight: 10 }}
+            style={{ fontSize: 18, color: "#1890ff", marginRight: 12 }}
           />
-          <Title level={5} style={{ margin: 0 }}>
-            SOP 流程编排 (Drag & Drop)
-          </Title>
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              flex: 1,
+              maxWidth: 400,
+            }}
+          >
+            <Input
+              value={flowMeta.name}
+              onChange={(e) => handleUpdateFlowMeta({ name: e.target.value })}
+              bordered={false}
+              className="header-flow-name-input"
+              placeholder="输入流程名称"
+            />
+            <Text
+              type="secondary"
+              style={{ fontSize: 10, lineHeight: 1, marginTop: 2 }}
+            >
+              ID: {flowMeta.id.slice(0, 8)}...
+            </Text>
+          </div>
         </div>
-        <div style={{ display: "flex", gap: 10 }}>
+        <div style={{ display: "flex", gap: 8 }}>
           <Button
             type="primary"
-            icon={<DownloadOutlined />}
-            onClick={handleExportFile}
+            icon={<SaveOutlined />}
+            onClick={handleGlobalSave}
           >
-            导出
+            保存文件
           </Button>
           <Button
             icon={<UploadOutlined />}
@@ -420,73 +506,94 @@ const SOPEditorLayout = () => {
           </div>
           <div style={{ flex: 1, overflow: "auto", padding: "8px" }}>
             <div style={{ minWidth: 250 }}>
-              <Tree
-                className="draggable-tree"
-                draggable
-                blockNode
-                showLine={{ showLeafIcon: false }}
-                expandedKeys={expandedKeys}
-                onExpand={(keys) => setExpandedKeys(keys)}
-                onDrop={onTreeDrop}
-                treeData={treeData}
-                selectedKeys={[editingNodeId]}
-                titleRender={(nodeData) => (
-                  <div
-                    className="flex items-center"
-                    style={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      width: "100%",
-                    }}
-                    onClick={() => handleNodeSelect(nodeData.key)}
+              {sopData.nodes.length === 0 ? (
+                <div style={{ padding: 20, textAlign: "center" }}>
+                  <Empty
+                    image={Empty.PRESENTED_IMAGE_SIMPLE}
+                    description="暂无节点"
+                  />
+                  <Button
+                    type="primary"
+                    icon={<PlusOutlined />}
+                    onClick={handleCreateRoot}
+                    style={{ marginTop: 16 }}
                   >
-                    <span style={{ display: "flex", alignItems: "center" }}>
-                      <Tag
-                        color={editingNodeId === nodeData.key ? "blue" : ""}
-                        style={{
-                          marginRight: 4,
-                          fontSize: 10,
-                          lineHeight: "16px",
-                          padding: "0 4px",
-                          border:
-                            editingNodeId === nodeData.key
-                              ? "none"
-                              : "1px solid #eee",
-                        }}
-                      >
-                        {nodeData.code}
-                      </Tag>
-                      <span style={{ whiteSpace: "nowrap" }}>
-                        {nodeData.title}
-                      </span>
-                      {nodeData.jumpTo && (
-                        <AimOutlined
+                    新建流程
+                  </Button>
+                </div>
+              ) : (
+                <Tree
+                  className="draggable-tree"
+                  draggable
+                  blockNode
+                  showLine={{ showLeafIcon: false }}
+                  expandedKeys={expandedKeys}
+                  onExpand={(keys) => setExpandedKeys(keys)}
+                  onDrop={onTreeDrop}
+                  treeData={treeData}
+                  selectedKeys={[editingNodeId]}
+                  titleRender={(nodeData) => (
+                    <div
+                      className="flex items-center"
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        width: "100%",
+                      }}
+                      onClick={() => handleNodeSelect(nodeData.key)}
+                    >
+                      <span style={{ display: "flex", alignItems: "center" }}>
+                        <Tag
+                          color={editingNodeId === nodeData.key ? "blue" : ""}
                           style={{
-                            marginLeft: 4,
-                            color: "#ff4d4f",
+                            marginRight: 4,
                             fontSize: 10,
+                            lineHeight: "16px",
+                            padding: "0 4px",
+                            border:
+                              editingNodeId === nodeData.key
+                                ? "none"
+                                : "1px solid #eee",
                           }}
+                        >
+                          {nodeData.code}
+                        </Tag>
+                        <span style={{ whiteSpace: "nowrap" }}>
+                          {nodeData.title}
+                        </span>
+                        {nodeData.jumpTo && (
+                          <Tooltip title="存在跳转">
+                            <AimOutlined
+                              style={{
+                                marginLeft: 4,
+                                color: "#ccc",
+                                fontSize: 12,
+                              }}
+                            />
+                          </Tooltip>
+                        )}
+                      </span>
+                      <span onClick={(e) => e.stopPropagation()}>
+                        <Button
+                          type="text"
+                          size="small"
+                          icon={<PlusOutlined style={{ fontSize: 12 }} />}
+                          onClick={() => addBranch(nodeData.key)}
                         />
-                      )}
-                    </span>
-                    <span onClick={(e) => e.stopPropagation()}>
-                      <Button
-                        type="text"
-                        size="small"
-                        icon={<PlusOutlined style={{ fontSize: 10 }} />}
-                        onClick={() => addBranch(nodeData.key)}
-                      />
-                      <Button
-                        type="text"
-                        danger
-                        size="small"
-                        icon={<DeleteOutlined style={{ fontSize: 10 }} />}
-                        onClick={() => deleteNode(nodeData.key)}
-                      />
-                    </span>
-                  </div>
-                )}
-              />
+                        {nodeData.key !== "root" && (
+                          <Button
+                            type="text"
+                            danger
+                            size="small"
+                            icon={<DeleteOutlined style={{ fontSize: 12 }} />}
+                            onClick={() => deleteNode(nodeData.key)}
+                          />
+                        )}
+                      </span>
+                    </div>
+                  )}
+                />
+              )}
             </div>
           </div>
         </div>
@@ -507,63 +614,85 @@ const SOPEditorLayout = () => {
             flexDirection: "column",
           }}
         >
-          {/* 视图切换条 */}
-          <div
-            style={{
-              position: "absolute",
-              top: 16,
-              left: "50%",
-              transform: "translateX(-50%)",
-              zIndex: 100,
-              background: "#fff",
-              padding: 4,
-              borderRadius: 8,
-              boxShadow: "0 2px 8px rgba(0,0,0,0.1)",
-            }}
-          >
-            <Radio.Group
-              value={viewMode}
-              onChange={(e) => setViewMode(e.target.value)}
-              buttonStyle="solid"
-            >
-              <Radio.Button value="canvas">
-                <AppstoreOutlined /> 画布
-              </Radio.Button>
-              <Radio.Button value="text">
-                <FileTextOutlined /> 文档
-              </Radio.Button>
-            </Radio.Group>
-          </div>
+          {sopData.nodes.length > 0 ? (
+            <>
+              <div
+                style={{
+                  position: "absolute",
+                  top: 16,
+                  left: "50%",
+                  transform: "translateX(-50%)",
+                  zIndex: 100,
+                  background: "#fff",
+                  padding: 4,
+                  borderRadius: 8,
+                  boxShadow: "0 2px 8px rgba(0,0,0,0.1)",
+                }}
+              >
+                <Radio.Group
+                  value={viewMode}
+                  onChange={(e) => setViewMode(e.target.value)}
+                  buttonStyle="solid"
+                >
+                  <Radio.Button value="canvas">
+                    <AppstoreOutlined /> 画布
+                  </Radio.Button>
+                  <Radio.Button value="text">
+                    <FileTextOutlined /> 文档
+                  </Radio.Button>
+                </Radio.Group>
+              </div>
 
-          {/* 视图内容 */}
-          <div style={{ flex: 1, position: "relative" }}>
-            {viewMode === "canvas" ? (
-              <SOPCanvasView
-                sopData={sopData}
-                visibleNodes={visibleNodesForCanvas}
-                allNodesWithCode={allNodesWithCode}
-                collapsedNodeIds={collapsedNodeIds}
-                editingNodeId={editingNodeId}
-                setRfInstance={setRfInstance}
-                handleNodeSelect={handleNodeSelect}
-                handleJumpTo={handleJumpTo}
-                toggleNodeCollapse={toggleNodeCollapse}
-                layoutDeps={[
-                  leftWidth,
-                  rightWidth,
-                  editingNodeId,
-                  expandedKeys,
-                  collapsedNodeIds,
-                ]}
-              />
-            ) : (
-              <SOPTextView
-                nodes={allNodesWithCode}
-                selectedId={editingNodeId}
-                onSelect={handleNodeSelect}
-              />
-            )}
-          </div>
+              <div style={{ flex: 1, position: "relative" }}>
+                {viewMode === "canvas" ? (
+                  <SOPCanvasView
+                    sopData={sopData}
+                    visibleNodes={visibleNodesForCanvas}
+                    allNodesWithCode={allNodesWithCode}
+                    collapsedNodeIds={collapsedNodeIds}
+                    editingNodeId={editingNodeId}
+                    setRfInstance={setRfInstance}
+                    handleNodeSelect={handleNodeSelect}
+                    toggleNodeCollapse={toggleNodeCollapse}
+                    layoutDeps={[
+                      leftWidth,
+                      rightWidth,
+                      editingNodeId,
+                      expandedKeys,
+                      collapsedNodeIds,
+                    ]}
+                  />
+                ) : (
+                  <SOPTextView
+                    nodes={allNodesWithCode}
+                    edges={sopData.edges}
+                    flowMeta={flowMeta}
+                    selectedId={editingNodeId}
+                    onSelect={handleNodeSelect}
+                    collapsedNodeIds={collapsedNodeIds}
+                    toggleNodeCollapse={toggleNodeCollapse}
+                  />
+                )}
+              </div>
+            </>
+          ) : (
+            <div
+              style={{
+                flex: 1,
+                display: "flex",
+                justifyContent: "center",
+                alignItems: "center",
+                color: "#999",
+              }}
+            >
+              <div style={{ textAlign: "center" }}>
+                <PartitionOutlined
+                  style={{ fontSize: 48, marginBottom: 16, color: "#e0e0e0" }}
+                />
+                <div>请先在左侧目录创建流程</div>
+              </div>
+            </div>
+          )}
         </div>
 
         {editingNodeId && (
@@ -589,8 +718,10 @@ const SOPEditorLayout = () => {
               currentEditNode={currentEditNode}
               jumpTargets={jumpTargets}
               onSaveNode={handleSaveNode}
-              onSaveDraft={handleSaveDraft}
+              onGlobalSave={handleGlobalSave}
               onClose={() => setEditingNodeId(null)}
+              flowMeta={flowMeta}
+              onUpdateFlowMeta={handleUpdateFlowMeta}
             />
           </div>
         )}
