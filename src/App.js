@@ -21,7 +21,7 @@ import {
   ReloadOutlined,
   FileTextOutlined,
   PartitionOutlined,
-  AimOutlined, // 【已修复】原代码漏掉了这个图标的引入
+  AimOutlined,
 } from "@ant-design/icons";
 import { v4 as uuidv4 } from "uuid";
 
@@ -30,12 +30,10 @@ import Resizer from "./components/Resizer";
 import SOPCanvasView from "./components/SOPCanvasView";
 import SOPTextView from "./components/SOPTextView";
 import PropertyPanel from "./components/PropertyPanel";
-// 【新增】引入水印组件
 import FloatingWatermark from "./components/FloatingWatermark";
 
 const { Text } = Typography;
 
-// 生成默认流程名称
 const generateDefaultName = () => {
   const date = new Date();
   const dateStr = `${date.getFullYear()}年${
@@ -53,24 +51,22 @@ const SOPEditorLayout = () => {
   const [rightWidth, setRightWidth] = useState(360);
   const minWidth = 200;
 
-  // --- 全局流程元数据 ---
   const [flowMeta, setFlowMeta] = useState({
     id: uuidv4(),
     name: generateDefaultName(),
   });
 
-  // --- 业务数据 ---
   const [sopData, setSopData] = useState({
     nodes: [],
     edges: [],
   });
 
   const [editingNodeId, setEditingNodeId] = useState(null);
-  const [rfInstance, setRfInstance] = useState(null);
+  const [rfInstance, setRfInstance] = useState(null); // eslint-disable-line
   const [expandedKeys, setExpandedKeys] = useState(["root"]);
   const [collapsedNodeIds, setCollapsedNodeIds] = useState(new Set());
 
-  // 走马灯
+  // 标题走马灯
   useEffect(() => {
     const text = "SOP 流程编排系统 - 专业的逻辑设计工具      ";
     let currentText = text;
@@ -83,7 +79,6 @@ const SOPEditorLayout = () => {
     return () => clearInterval(timer);
   }, []);
 
-  // --- 计算逻辑 ---
   const allNodesWithCode = useMemo(() => {
     return processGraphData(sopData.nodes, sopData.edges, new Set());
   }, [sopData]);
@@ -97,8 +92,7 @@ const SOPEditorLayout = () => {
     [allNodesWithCode, sopData.edges]
   );
 
-  // --- Actions ---
-
+  // Actions
   const handleCreateRoot = () => {
     const rootId = "root";
     const newRoot = {
@@ -111,7 +105,6 @@ const SOPEditorLayout = () => {
       },
       type: "input",
     };
-
     setSopData({ nodes: [newRoot], edges: [] });
     setEditingNodeId(rootId);
     setExpandedKeys([rootId]);
@@ -178,7 +171,6 @@ const SOPEditorLayout = () => {
 
     currentSiblingEdges.splice(insertIndex, 0, newEdge);
     const finalEdges = [...otherEdges, ...currentSiblingEdges];
-
     setSopData((prev) => ({ ...prev, edges: finalEdges }));
     message.success("结构调整成功");
   };
@@ -195,12 +187,10 @@ const SOPEditorLayout = () => {
       source: parentId,
       target: newNodeId,
     };
-
     setSopData((prev) => ({
       nodes: [...prev.nodes, newNode],
       edges: [...prev.edges, newEdge],
     }));
-
     if (!expandedKeys.includes(parentId)) {
       setExpandedKeys((prev) => [...prev, parentId]);
     }
@@ -230,74 +220,17 @@ const SOPEditorLayout = () => {
         id: node.id,
         name: node.data.label,
         description: node.data.description,
+        jumpTargetId: node.data.jumpTargetId, // 回显跳转配置
         flowName: flowMeta.name,
       });
     }
   };
 
-  const handleSaveNode = (values) => {
-    updateNodeData(values);
-    message.success("节点配置已保存");
-  };
-
-  // --- 全局保存核心逻辑 (增强版) ---
-  const handleGlobalSave = async () => {
-    if (sopData.nodes.length === 0) {
-      message.warning("没有内容可保存");
-      return;
-    }
-    const exportData = {
-      meta: flowMeta,
-      ...sopData,
-    };
-    const dataStr = JSON.stringify(exportData, null, 2);
-    // 过滤非法字符，确保文件名合法
-    const safeName = flowMeta.name.replace(/[<>:"/\\|?*]+/g, "_");
-    const fileName = `${safeName}.json`;
-
-    try {
-      // 尝试使用文件系统 API (Chrome/Edge 支持)
-      if ("showSaveFilePicker" in window) {
-        const handle = await window.showSaveFilePicker({
-          suggestedName: fileName,
-          types: [
-            {
-              description: "SOP Flow JSON",
-              accept: { "application/json": [".json"] },
-            },
-          ],
-        });
-        const writable = await handle.createWritable();
-        await writable.write(dataStr);
-        await writable.close();
-        message.success("文件已成功保存到本地");
-      } else {
-        throw new Error("API_NOT_SUPPORTED");
-      }
-    } catch (err) {
-      if (err.name === "AbortError") return;
-
-      const blob = new Blob([dataStr], { type: "application/json" });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = fileName;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
-
-      if (err.message === "API_NOT_SUPPORTED") {
-        message.info("当前浏览器环境不支持选择路径，已自动下载");
-      } else {
-        message.success("文件已导出");
-      }
-    }
-  };
-
+  // --- 核心更新逻辑修改 ---
   const updateNodeData = (values) => {
     const currentNode = sopData.nodes.find((n) => n.id === editingNodeId);
     const currentPayload = currentNode?.data.payload || {};
+    // 合并随路数据
     const updatedPayload = values.payloadKey
       ? { ...currentPayload, [values.payloadKey]: values.payloadValue }
       : currentPayload;
@@ -311,6 +244,7 @@ const SOPEditorLayout = () => {
                 ...n.data,
                 label: values.name,
                 description: values.description,
+                jumpTargetId: values.jumpTargetId, // 保存跳转目标ID
                 payload: updatedPayload,
               },
             }
@@ -318,6 +252,58 @@ const SOPEditorLayout = () => {
       ),
       edges: prev.edges,
     }));
+  };
+
+  const handleSaveNode = (values) => {
+    updateNodeData(values);
+    message.success("节点配置已保存");
+  };
+
+  const handleGlobalSave = async () => {
+    if (sopData.nodes.length === 0) {
+      message.warning("没有内容可保存");
+      return;
+    }
+    const exportData = { meta: flowMeta, ...sopData };
+    const dataStr = JSON.stringify(exportData, null, 2);
+    const safeName = flowMeta.name.replace(/[<>:"/\\|?*]+/g, "_");
+    const fileName = `${safeName}.json`;
+
+    try {
+      if ("showSaveFilePicker" in window) {
+        const handle = await window.showSaveFilePicker({
+          suggestedName: fileName,
+          types: [
+            {
+              description: "SOP Flow JSON",
+              accept: { "application/json": [".json"] },
+            },
+          ],
+        });
+        const writable = await handle.createWritable();
+        await writable.write(dataStr);
+        await writable.close();
+        message.success("文件已保存");
+      } else {
+        throw new Error("API_NOT_SUPPORTED");
+      }
+    } catch (err) {
+      if (err.name === "AbortError") return;
+      const blob = new Blob([dataStr], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      if (err.message === "API_NOT_SUPPORTED") {
+        message.info("已下载文件");
+      } else {
+        message.success("导出成功");
+      }
+    }
   };
 
   const handleUpdateFlowMeta = (newMeta) => {
@@ -352,21 +338,18 @@ const SOPEditorLayout = () => {
   const handleResetData = () => {
     Modal.confirm({
       title: "确认重置？",
-      content: "将清空当前所有内容。",
+      content: "将清空所有内容。",
       onOk: () => {
         setFlowMeta({ id: uuidv4(), name: generateDefaultName() });
         setSopData({ nodes: [], edges: [] });
         setEditingNodeId(null);
         setCollapsedNodeIds(new Set());
-        message.success("已重置");
       },
     });
   };
 
   const currentEditNode = allNodesWithCode.find((n) => n.id === editingNodeId);
   const jumpTargets = allNodesWithCode.filter((n) => n.id !== editingNodeId);
-
-  const handleJumpTo = () => {};
 
   return (
     <div
@@ -375,18 +358,14 @@ const SOPEditorLayout = () => {
         display: "flex",
         flexDirection: "column",
         overflow: "hidden",
-        position: "relative", // 确保子元素定位基于此
+        position: "relative",
       }}
     >
-      {/* 【新增】 放入水印组件 */}
       <FloatingWatermark />
 
       <style>{`
         .ant-tree.ant-tree-show-line .ant-tree-indent-unit::before {
           border-left: 1px dashed #d9d9d9 !important;
-        }
-        .ant-tree.ant-tree-show-line .ant-tree-switcher-line-icon {
-          color: #d9d9d9 !important;
         }
         .header-flow-name-input {
             font-size: 16px; font-weight: 600; color: #1f1f1f; padding: 0; transition: all 0.3s;
@@ -417,25 +396,11 @@ const SOPEditorLayout = () => {
           flexShrink: 0,
         }}
       >
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            flex: 1,
-            marginRight: 20,
-          }}
-        >
+        <div style={{ display: "flex", alignItems: "center", flex: 1 }}>
           <AppstoreOutlined
             style={{ fontSize: 18, color: "#1890ff", marginRight: 12 }}
           />
-          <div
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              flex: 1,
-              maxWidth: 400,
-            }}
-          >
+          <div style={{ display: "flex", flexDirection: "column" }}>
             <Input
               value={flowMeta.name}
               onChange={(e) => handleUpdateFlowMeta({ name: e.target.value })}
@@ -443,10 +408,7 @@ const SOPEditorLayout = () => {
               className="header-flow-name-input"
               placeholder="输入流程名称"
             />
-            <Text
-              type="secondary"
-              style={{ fontSize: 10, lineHeight: 1, marginTop: 2 }}
-            >
+            <Text type="secondary" style={{ fontSize: 10, lineHeight: 1 }}>
               ID: {flowMeta.id.slice(0, 8)}...
             </Text>
           </div>
@@ -473,7 +435,6 @@ const SOPEditorLayout = () => {
         </div>
       </div>
 
-      {/* Main Layout */}
       <div
         style={{
           flex: 1,
@@ -491,6 +452,7 @@ const SOPEditorLayout = () => {
             display: "flex",
             flexDirection: "column",
             overflow: "hidden",
+            borderRight: "1px solid #f0f0f0",
           }}
         >
           <div
@@ -508,10 +470,7 @@ const SOPEditorLayout = () => {
             <div style={{ minWidth: 250 }}>
               {sopData.nodes.length === 0 ? (
                 <div style={{ padding: 20, textAlign: "center" }}>
-                  <Empty
-                    image={Empty.PRESENTED_IMAGE_SIMPLE}
-                    description="暂无节点"
-                  />
+                  <Empty description="暂无节点" />
                   <Button
                     type="primary"
                     icon={<PlusOutlined />}
@@ -528,70 +487,80 @@ const SOPEditorLayout = () => {
                   blockNode
                   showLine={{ showLeafIcon: false }}
                   expandedKeys={expandedKeys}
-                  onExpand={(keys) => setExpandedKeys(keys)}
+                  onExpand={setExpandedKeys}
                   onDrop={onTreeDrop}
                   treeData={treeData}
                   selectedKeys={[editingNodeId]}
-                  titleRender={(nodeData) => (
-                    <div
-                      className="flex items-center"
-                      style={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        width: "100%",
-                      }}
-                      onClick={() => handleNodeSelect(nodeData.key)}
-                    >
-                      <span style={{ display: "flex", alignItems: "center" }}>
-                        <Tag
-                          color={editingNodeId === nodeData.key ? "blue" : ""}
-                          style={{
-                            marginRight: 4,
-                            fontSize: 10,
-                            lineHeight: "16px",
-                            padding: "0 4px",
-                            border:
-                              editingNodeId === nodeData.key
-                                ? "none"
-                                : "1px solid #eee",
-                          }}
-                        >
-                          {nodeData.code}
-                        </Tag>
-                        <span style={{ whiteSpace: "nowrap" }}>
-                          {nodeData.title}
+                  titleRender={(nodeData) => {
+                    // --- 核心修改：动态查找跳转目标名称 ---
+                    const nodeItem = allNodesWithCode.find(
+                      (n) => n.id === nodeData.key
+                    );
+                    const targetId = nodeItem?.data?.jumpTargetId;
+                    const targetNode = targetId
+                      ? allNodesWithCode.find((n) => n.id === targetId)
+                      : null;
+                    const jumpTooltip = targetNode
+                      ? `跳转至: [${targetNode.code}] ${targetNode.data.label}`
+                      : "跳转目标未配置或已删除";
+
+                    return (
+                      <div
+                        className="flex items-center"
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          width: "100%",
+                        }}
+                        onClick={() => handleNodeSelect(nodeData.key)}
+                      >
+                        <span style={{ display: "flex", alignItems: "center" }}>
+                          <Tag
+                            color={editingNodeId === nodeData.key ? "blue" : ""}
+                            style={{
+                              marginRight: 4,
+                              fontSize: 10,
+                              lineHeight: "16px",
+                              padding: "0 4px",
+                            }}
+                          >
+                            {nodeData.code}
+                          </Tag>
+                          <span>{nodeData.title}</span>
+                          {/* 如果存在 jumpTargetId，展示图标 */}
+                          {targetId && (
+                            <Tooltip title={jumpTooltip}>
+                              <AimOutlined
+                                style={{
+                                  marginLeft: 6,
+                                  color: "#faad14", // 金色表示跳转
+                                  fontSize: 12,
+                                  cursor: "default",
+                                }}
+                              />
+                            </Tooltip>
+                          )}
                         </span>
-                        {nodeData.jumpTo && (
-                          <Tooltip title="存在跳转">
-                            <AimOutlined
-                              style={{
-                                marginLeft: 4,
-                                color: "#ccc",
-                                fontSize: 12,
-                              }}
-                            />
-                          </Tooltip>
-                        )}
-                      </span>
-                      <span onClick={(e) => e.stopPropagation()}>
-                        <Button
-                          type="text"
-                          size="small"
-                          icon={<PlusOutlined style={{ fontSize: 12 }} />}
-                          onClick={() => addBranch(nodeData.key)}
-                        />
-                        {nodeData.key !== "root" && (
+                        <span onClick={(e) => e.stopPropagation()}>
                           <Button
                             type="text"
-                            danger
                             size="small"
-                            icon={<DeleteOutlined style={{ fontSize: 12 }} />}
-                            onClick={() => deleteNode(nodeData.key)}
+                            icon={<PlusOutlined style={{ fontSize: 12 }} />}
+                            onClick={() => addBranch(nodeData.key)}
                           />
-                        )}
-                      </span>
-                    </div>
-                  )}
+                          {nodeData.key !== "root" && (
+                            <Button
+                              type="text"
+                              danger
+                              size="small"
+                              icon={<DeleteOutlined style={{ fontSize: 12 }} />}
+                              onClick={() => deleteNode(nodeData.key)}
+                            />
+                          )}
+                        </span>
+                      </div>
+                    );
+                  }}
                 />
               )}
             </div>
@@ -603,13 +572,12 @@ const SOPEditorLayout = () => {
           }
         />
 
-        {/* Center: Main Area */}
+        {/* Center */}
         <div
           style={{
             flex: 1,
             background: "#f5f5f5",
             position: "relative",
-            overflow: "hidden",
             display: "flex",
             flexDirection: "column",
           }}
@@ -685,45 +653,39 @@ const SOPEditorLayout = () => {
                 color: "#999",
               }}
             >
-              <div style={{ textAlign: "center" }}>
-                <PartitionOutlined
-                  style={{ fontSize: 48, marginBottom: 16, color: "#e0e0e0" }}
-                />
-                <div>请先在左侧目录创建流程</div>
-              </div>
+              <PartitionOutlined
+                style={{ fontSize: 48, marginBottom: 16, color: "#e0e0e0" }}
+              />
             </div>
           )}
         </div>
 
         {editingNodeId && (
-          <Resizer
-            onResize={(delta) =>
-              setRightWidth((prev) => Math.max(minWidth, prev - delta))
-            }
-          />
-        )}
-
-        {/* Right: Property Panel */}
-        {editingNodeId && (
-          <div
-            style={{
-              width: rightWidth,
-              minWidth: 50,
-              background: "#fff",
-              borderLeft: "1px solid #ddd",
-            }}
-          >
-            <PropertyPanel
-              form={form}
-              currentEditNode={currentEditNode}
-              jumpTargets={jumpTargets}
-              onSaveNode={handleSaveNode}
-              onGlobalSave={handleGlobalSave}
-              onClose={() => setEditingNodeId(null)}
-              flowMeta={flowMeta}
-              onUpdateFlowMeta={handleUpdateFlowMeta}
+          <>
+            <Resizer
+              onResize={(delta) =>
+                setRightWidth((prev) => Math.max(minWidth, prev - delta))
+              }
             />
-          </div>
+            <div
+              style={{
+                width: rightWidth,
+                background: "#fff",
+                borderLeft: "1px solid #ddd",
+              }}
+            >
+              <PropertyPanel
+                form={form}
+                currentEditNode={currentEditNode}
+                jumpTargets={jumpTargets}
+                onSaveNode={handleSaveNode}
+                onGlobalSave={handleGlobalSave}
+                onClose={() => setEditingNodeId(null)}
+                flowMeta={flowMeta}
+                onUpdateFlowMeta={handleUpdateFlowMeta}
+              />
+            </div>
+          </>
         )}
       </div>
     </div>
