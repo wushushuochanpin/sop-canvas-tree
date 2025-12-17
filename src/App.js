@@ -269,6 +269,32 @@ const Resizer = ({ onResize }) => {
 // --- 主组件 ---
 const SOPEditorLayout = () => {
   const [form] = Form.useForm();
+  // --- 走马灯标题特效 ---
+  useEffect(() => {
+    // 1. 定义你要滚动的文字（注意：后面多加几个空格，不然首尾相接太紧不好看）
+    const text = "SOP 流程编排系统 - 专业的逻辑设计工具      ";
+
+    // 定义一个临时变量用来存当前的滚动状态
+    let currentText = text;
+
+    // 2. 设置定时器，每 300 毫秒执行一次
+    const timer = setInterval(() => {
+      // 算法：把第一个字切下来，贴到最后面去
+      const firstChar = currentText.charAt(0);
+      const restText = currentText.substring(1);
+
+      currentText = restText + firstChar;
+
+      // 3. 修改浏览器标题
+      document.title = currentText;
+    }, 300); // 300 是速度，数值越小滚得越快
+
+    // 4. 清理函数：当组件销毁时，关掉定时器，防止内存泄漏
+    return () => {
+      clearInterval(timer);
+      document.title = "SOP 流程编排"; // 恢复成静态标题
+    };
+  }, []);
   const fileInputRef = useRef(null);
 
   const [leftWidth, setLeftWidth] = useState(300);
