@@ -904,6 +904,9 @@ const SOPEditorLayout = () => {
                 draggable
                 blockNode
                 // 控制展开状态
+                // 【添加这行代码】------------
+                showLine={{ showLeafIcon: false }}
+                // -------------------------
                 expandedKeys={expandedKeys}
                 onExpand={(keys) => setExpandedKeys(keys)}
                 onDrop={onTreeDrop} // 拖拽核心
