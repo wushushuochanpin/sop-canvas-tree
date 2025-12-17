@@ -1,9 +1,10 @@
-// src/firebase.js
 import { initializeApp } from "firebase/app";
 import { getFirestore } from "firebase/firestore";
+// --- 关键：引入认证模块 ---
+import { getAuth, GoogleAuthProvider } from "firebase/auth";
 
-// 你的配置信息
 const firebaseConfig = {
+  // 这里填你自己的配置（之前你发给我的那个）
   apiKey: "AIzaSyAMUJ5jzF1X6IfQdvDVUGrYSshNQ0ew7qQ",
   authDomain: "sop2026-8f002.firebaseapp.com",
   projectId: "sop2026-8f002",
@@ -12,8 +13,11 @@ const firebaseConfig = {
   appId: "1:776763124018:web:0a7af1ae91656cb91ccf2b",
 };
 
-// 1. 初始化 Firebase 应用
 const app = initializeApp(firebaseConfig);
 
-// 2. 初始化数据库并导出，给 App.js 使用
+// 导出数据库
 export const db = getFirestore(app);
+
+// --- 关键：导出认证实例 ---
+export const auth = getAuth(app);
+export const googleProvider = new GoogleAuthProvider();
