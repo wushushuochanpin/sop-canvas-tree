@@ -16,14 +16,17 @@ import {
   PlusOutlined,
   DeleteOutlined,
   AppstoreOutlined,
-  SaveOutlined,
-  UploadOutlined,
+  CloudSyncOutlined, // 云同步图标
   ReloadOutlined,
   FileTextOutlined,
   PartitionOutlined,
   AimOutlined,
 } from "@ant-design/icons";
 import { v4 as uuidv4 } from "uuid";
+
+// --- Firebase 引入 ---
+import { doc, setDoc, getDoc } from "firebase/firestore";
+import { db } from "./firebase"; // 确保 src/firebase.js 存在且配置正确
 
 import { processGraphData, buildTreeData } from "./utils/graphLogic";
 import Resizer from "./components/Resizer";
@@ -34,6 +37,11 @@ import FloatingWatermark from "./components/FloatingWatermark";
 
 const { Text } = Typography;
 
+// --- 常量定义 ---
+// 在数据库中存储的文档ID。你可以改成其他字符串，或者从URL参数获取
+const PROJECT_DOC_ID = "sop_demo_project_001";
+
+// 生成默认流程名称
 const generateDefaultName = () => {
   const date = new Date();
   const dateStr = `${date.getFullYear()}年${
@@ -44,31 +52,67 @@ const generateDefaultName = () => {
 
 const SOPEditorLayout = () => {
   const [form] = Form.useForm();
-  const fileInputRef = useRef(null);
 
-  const [viewMode, setViewMode] = useState("canvas");
+  // 视图状态
+  const [viewMode, setViewMode] = useState("canvas"); // 'canvas' | 'text'
   const [leftWidth, setLeftWidth] = useState(300);
   const [rightWidth, setRightWidth] = useState(360);
   const minWidth = 200;
 
+  // --- 全局流程元数据 ---
   const [flowMeta, setFlowMeta] = useState({
     id: uuidv4(),
     name: generateDefaultName(),
   });
 
+  // --- 业务数据 (核心) ---
   const [sopData, setSopData] = useState({
     nodes: [],
     edges: [],
   });
 
+  // --- UI 交互状态 ---
   const [editingNodeId, setEditingNodeId] = useState(null);
-  const [rfInstance, setRfInstance] = useState(null); // eslint-disable-line
+  const [rfInstance, setRfInstance] = useState(null);
   const [expandedKeys, setExpandedKeys] = useState(["root"]);
   const [collapsedNodeIds, setCollapsedNodeIds] = useState(new Set());
 
-  // 标题走马灯
+  // 1. 【初始化】页面加载时，从 Firebase 读取数据
   useEffect(() => {
-    const text = "SOP 流程编排系统 - 专业的逻辑设计工具      ";
+    const initLoad = async () => {
+      try {
+        message.loading({ content: "正在同步云端数据...", key: "initLoad" });
+        const docRef = doc(db, "projects", PROJECT_DOC_ID);
+        const docSnap = await getDoc(docRef);
+
+        if (docSnap.exists()) {
+          const data = docSnap.data();
+          // 恢复数据
+          if (data.nodes)
+            setSopData({ nodes: data.nodes, edges: data.edges || [] });
+          if (data.meta) setFlowMeta(data.meta);
+          message.success({ content: "云端数据同步完成", key: "initLoad" });
+        } else {
+          message.info({
+            content: "云端暂无数据，请点击保存创建",
+            key: "initLoad",
+          });
+        }
+      } catch (error) {
+        console.error("加载失败:", error);
+        message.error({
+          content: "读取失败，请检查网络或 Firebase 配置",
+          key: "initLoad",
+        });
+      }
+    };
+
+    initLoad();
+  }, []);
+
+  // 2. 浏览器标题走马灯 (保持原有趣味性)
+  useEffect(() => {
+    const text = "SOP 流程编排系统 - Design by zhangjunxu      ";
     let currentText = text;
     const timer = setInterval(() => {
       const firstChar = currentText.charAt(0);
@@ -79,6 +123,7 @@ const SOPEditorLayout = () => {
     return () => clearInterval(timer);
   }, []);
 
+  // --- 计算逻辑 (Memo) ---
   const allNodesWithCode = useMemo(() => {
     return processGraphData(sopData.nodes, sopData.edges, new Set());
   }, [sopData]);
@@ -92,7 +137,9 @@ const SOPEditorLayout = () => {
     [allNodesWithCode, sopData.edges]
   );
 
-  // Actions
+  // --- 核心 Actions ---
+
+  // 创建根节点
   const handleCreateRoot = () => {
     const rootId = "root";
     const newRoot = {
@@ -111,6 +158,7 @@ const SOPEditorLayout = () => {
     message.success("已创建流程起点");
   };
 
+  // 切换折叠
   const toggleNodeCollapse = (nodeId) => {
     const newSet = new Set(collapsedNodeIds);
     if (newSet.has(nodeId)) {
@@ -121,6 +169,7 @@ const SOPEditorLayout = () => {
     setCollapsedNodeIds(newSet);
   };
 
+  // 目录树拖拽排序逻辑 (核心难点)
   const onTreeDrop = (info) => {
     const dropKey = info.node.key;
     const dragKey = info.dragNode.key;
@@ -175,6 +224,7 @@ const SOPEditorLayout = () => {
     message.success("结构调整成功");
   };
 
+  // 新增子节点
   const addBranch = (parentId) => {
     const newNodeId = uuidv4();
     const newNode = {
@@ -197,6 +247,7 @@ const SOPEditorLayout = () => {
     handleNodeSelect(newNodeId);
   };
 
+  // 删除节点
   const deleteNode = (nodeId) => {
     if (nodeId === "root") {
       message.warning("根节点不可删除");
@@ -211,6 +262,7 @@ const SOPEditorLayout = () => {
     if (editingNodeId === nodeId) setEditingNodeId(null);
   };
 
+  // 选中节点
   const handleNodeSelect = (nodeId) => {
     setEditingNodeId(nodeId);
     const node = sopData.nodes.find((n) => n.id === nodeId);
@@ -220,13 +272,13 @@ const SOPEditorLayout = () => {
         id: node.id,
         name: node.data.label,
         description: node.data.description,
-        jumpTargetId: node.data.jumpTargetId, // 回显跳转配置
+        jumpTargetId: node.data.jumpTargetId, // 回显跳转
         flowName: flowMeta.name,
       });
     }
   };
 
-  // --- 核心更新逻辑修改 ---
+  // 更新节点数据 (包含跳转逻辑)
   const updateNodeData = (values) => {
     const currentNode = sopData.nodes.find((n) => n.id === editingNodeId);
     const currentPayload = currentNode?.data.payload || {};
@@ -244,7 +296,7 @@ const SOPEditorLayout = () => {
                 ...n.data,
                 label: values.name,
                 description: values.description,
-                jumpTargetId: values.jumpTargetId, // 保存跳转目标ID
+                jumpTargetId: values.jumpTargetId, // 保存跳转目标
                 payload: updatedPayload,
               },
             }
@@ -256,89 +308,49 @@ const SOPEditorLayout = () => {
 
   const handleSaveNode = (values) => {
     updateNodeData(values);
-    message.success("节点配置已保存");
+    message.success("节点配置已更新 (请记得点击云端保存)");
   };
 
+  // --- 【核心修改】保存到 Firebase ---
   const handleGlobalSave = async () => {
     if (sopData.nodes.length === 0) {
       message.warning("没有内容可保存");
       return;
     }
-    const exportData = { meta: flowMeta, ...sopData };
-    const dataStr = JSON.stringify(exportData, null, 2);
-    const safeName = flowMeta.name.replace(/[<>:"/\\|?*]+/g, "_");
-    const fileName = `${safeName}.json`;
+
+    const saveData = {
+      meta: flowMeta,
+      nodes: sopData.nodes,
+      edges: sopData.edges,
+      updatedAt: new Date().toISOString(),
+    };
 
     try {
-      if ("showSaveFilePicker" in window) {
-        const handle = await window.showSaveFilePicker({
-          suggestedName: fileName,
-          types: [
-            {
-              description: "SOP Flow JSON",
-              accept: { "application/json": [".json"] },
-            },
-          ],
-        });
-        const writable = await handle.createWritable();
-        await writable.write(dataStr);
-        await writable.close();
-        message.success("文件已保存");
-      } else {
-        throw new Error("API_NOT_SUPPORTED");
-      }
+      message.loading({ content: "正在保存到云端...", key: "saveMsg" });
+
+      // 写入 Firestore: 集合 "projects", 文档 PROJECT_DOC_ID
+      await setDoc(doc(db, "projects", PROJECT_DOC_ID), saveData);
+
+      message.success({
+        content: "保存成功！数据已同步到云端",
+        key: "saveMsg",
+      });
     } catch (err) {
-      if (err.name === "AbortError") return;
-      const blob = new Blob([dataStr], { type: "application/json" });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = fileName;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
-      if (err.message === "API_NOT_SUPPORTED") {
-        message.info("已下载文件");
-      } else {
-        message.success("导出成功");
-      }
+      console.error(err);
+      message.error({ content: "保存失败: " + err.message, key: "saveMsg" });
     }
   };
 
+  // 更新流程元数据
   const handleUpdateFlowMeta = (newMeta) => {
     setFlowMeta((prev) => ({ ...prev, ...newMeta }));
   };
 
-  const handleFileChange = (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      try {
-        const json = JSON.parse(event.target.result);
-        if (json && Array.isArray(json.nodes)) {
-          if (json.meta) setFlowMeta(json.meta);
-          setSopData({ nodes: json.nodes, edges: json.edges });
-          setEditingNodeId(null);
-          setExpandedKeys(["root"]);
-          setCollapsedNodeIds(new Set());
-          message.success("导入成功");
-        } else {
-          message.error("格式错误");
-        }
-      } catch (err) {
-        message.error("解析失败");
-      }
-    };
-    reader.readAsText(file);
-    e.target.value = "";
-  };
-
+  // 重置画布
   const handleResetData = () => {
     Modal.confirm({
-      title: "确认重置？",
-      content: "将清空所有内容。",
+      title: "确认清空？",
+      content: "将清空当前画布所有内容（云端数据不会删除，除非再次保存）。",
       onOk: () => {
         setFlowMeta({ id: uuidv4(), name: generateDefaultName() });
         setSopData({ nodes: [], edges: [] });
@@ -348,7 +360,9 @@ const SOPEditorLayout = () => {
     });
   };
 
+  // 辅助变量
   const currentEditNode = allNodesWithCode.find((n) => n.id === editingNodeId);
+  // 可跳转的目标列表 (排除自己)
   const jumpTargets = allNodesWithCode.filter((n) => n.id !== editingNodeId);
 
   return (
@@ -361,8 +375,10 @@ const SOPEditorLayout = () => {
         position: "relative",
       }}
     >
+      {/* 1. 漂浮水印 */}
       <FloatingWatermark />
 
+      {/* CSS 样式修正 */}
       <style>{`
         .ant-tree.ant-tree-show-line .ant-tree-indent-unit::before {
           border-left: 1px dashed #d9d9d9 !important;
@@ -375,15 +391,7 @@ const SOPEditorLayout = () => {
         }
       `}</style>
 
-      <input
-        type="file"
-        ref={fileInputRef}
-        style={{ display: "none" }}
-        accept=".json"
-        onChange={handleFileChange}
-      />
-
-      {/* Header */}
+      {/* 2. 顶部 Header */}
       <div
         style={{
           background: "#fff",
@@ -394,6 +402,7 @@ const SOPEditorLayout = () => {
           alignItems: "center",
           justifyContent: "space-between",
           flexShrink: 0,
+          zIndex: 10,
         }}
       >
         <div style={{ display: "flex", alignItems: "center", flex: 1 }}>
@@ -409,32 +418,28 @@ const SOPEditorLayout = () => {
               placeholder="输入流程名称"
             />
             <Text type="secondary" style={{ fontSize: 10, lineHeight: 1 }}>
-              ID: {flowMeta.id.slice(0, 8)}...
+              ID: {flowMeta.id.slice(0, 8)}... (云同步)
             </Text>
           </div>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
           <Button
             type="primary"
-            icon={<SaveOutlined />}
+            icon={<CloudSyncOutlined />}
             onClick={handleGlobalSave}
           >
-            保存文件
-          </Button>
-          <Button
-            icon={<UploadOutlined />}
-            onClick={() => fileInputRef.current?.click()}
-          >
-            导入
+            保存到云端
           </Button>
           <Button
             type="text"
             icon={<ReloadOutlined />}
             onClick={handleResetData}
+            title="重置画布"
           />
         </div>
       </div>
 
+      {/* 3. 主体布局 */}
       <div
         style={{
           flex: 1,
@@ -443,7 +448,7 @@ const SOPEditorLayout = () => {
           position: "relative",
         }}
       >
-        {/* Left: Tree */}
+        {/* 左侧: 目录树 */}
         <div
           style={{
             width: leftWidth,
@@ -492,7 +497,7 @@ const SOPEditorLayout = () => {
                   treeData={treeData}
                   selectedKeys={[editingNodeId]}
                   titleRender={(nodeData) => {
-                    // --- 核心修改：动态查找跳转目标名称 ---
+                    // 动态查找跳转目标名称
                     const nodeItem = allNodesWithCode.find(
                       (n) => n.id === nodeData.key
                     );
@@ -502,7 +507,7 @@ const SOPEditorLayout = () => {
                       : null;
                     const jumpTooltip = targetNode
                       ? `跳转至: [${targetNode.code}] ${targetNode.data.label}`
-                      : "跳转目标未配置或已删除";
+                      : "跳转目标配置错误";
 
                     return (
                       <div
@@ -527,13 +532,12 @@ const SOPEditorLayout = () => {
                             {nodeData.code}
                           </Tag>
                           <span>{nodeData.title}</span>
-                          {/* 如果存在 jumpTargetId，展示图标 */}
                           {targetId && (
                             <Tooltip title={jumpTooltip}>
                               <AimOutlined
                                 style={{
                                   marginLeft: 6,
-                                  color: "#faad14", // 金色表示跳转
+                                  color: "#faad14",
                                   fontSize: 12,
                                   cursor: "default",
                                 }}
@@ -572,7 +576,7 @@ const SOPEditorLayout = () => {
           }
         />
 
-        {/* Center */}
+        {/* 中间: 画布/文档视图 */}
         <div
           style={{
             flex: 1,
@@ -584,6 +588,7 @@ const SOPEditorLayout = () => {
         >
           {sopData.nodes.length > 0 ? (
             <>
+              {/* 视图切换按钮 */}
               <div
                 style={{
                   position: "absolute",
@@ -660,6 +665,7 @@ const SOPEditorLayout = () => {
           )}
         </div>
 
+        {/* 右侧: 属性面板 */}
         {editingNodeId && (
           <>
             <Resizer
