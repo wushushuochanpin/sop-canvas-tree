@@ -8,8 +8,9 @@ import {
   Typography,
   Modal,
   Input,
-  Spin,
   Tooltip,
+  Radio,
+  Empty,
 } from "antd";
 import {
   PlusOutlined,
@@ -19,7 +20,9 @@ import {
   ArrowLeftOutlined,
   CheckCircleOutlined,
   LoadingOutlined,
-  AimOutlined, // 之前的跳转图标
+  AimOutlined,
+  FileTextOutlined,
+  PartitionOutlined,
 } from "@ant-design/icons";
 import { v4 as uuidv4 } from "uuid";
 import { doc, setDoc, getDoc } from "firebase/firestore";
@@ -104,7 +107,7 @@ const SOPEditor = ({ user, projectId, onBack }) => {
     return () => clearInterval(timer);
   }, [projectId, user]);
 
-  // --- 计算逻辑 (核心) ---
+  // --- 计算逻辑 ---
   const allNodesWithCode = useMemo(() => {
     return processGraphData(sopData.nodes, sopData.edges, new Set());
   }, [sopData]);
@@ -118,8 +121,7 @@ const SOPEditor = ({ user, projectId, onBack }) => {
     [allNodesWithCode, sopData.edges]
   );
 
-  // --- 树操作逻辑 (完全恢复) ---
-
+  // --- 树操作逻辑 ---
   const handleCreateRoot = () => {
     const rootId = "root";
     const newRoot = {
@@ -139,20 +141,14 @@ const SOPEditor = ({ user, projectId, onBack }) => {
     setCollapsedNodeIds(newSet);
   };
 
-  // 拖拽逻辑 (完全恢复)
   const onTreeDrop = (info) => {
     const dropKey = info.node.key;
     const dragKey = info.dragNode.key;
     const dropPos = info.node.pos.split("-");
 
-    if (dragKey === "root") {
-      message.warning("根节点不可移动");
-      return;
-    }
-    if (dropKey === "root" && info.dropToGap) {
-      message.warning("根节点必须唯一");
-      return;
-    }
+    if (dragKey === "root") return message.warning("根节点不可移动");
+    if (dropKey === "root" && info.dropToGap)
+      return message.warning("根节点必须唯一");
 
     let newEdges = sopData.edges.filter((e) => e.target !== dragKey);
     let newParentId;
@@ -166,7 +162,6 @@ const SOPEditor = ({ user, projectId, onBack }) => {
       const dropTargetEdge = sopData.edges.find((e) => e.target === dropKey);
       if (!dropTargetEdge) return;
       newParentId = dropTargetEdge.source;
-
       const siblingEdges = newEdges.filter((e) => e.source === newParentId);
       const dropTargetIndex = siblingEdges.findIndex(
         (e) => e.target === dropKey
@@ -182,12 +177,10 @@ const SOPEditor = ({ user, projectId, onBack }) => {
       source: newParentId,
       target: dragKey,
     };
-
     const otherEdges = newEdges.filter((e) => e.source !== newParentId);
     const currentSiblingEdges = newEdges.filter(
       (e) => e.source === newParentId
     );
-
     currentSiblingEdges.splice(insertIndex, 0, newEdge);
     const finalEdges = [...otherEdges, ...currentSiblingEdges];
     setSopData((prev) => ({ ...prev, edges: finalEdges }));
@@ -278,7 +271,6 @@ const SOPEditor = ({ user, projectId, onBack }) => {
     if (!isAutoSave && currentNodes.length === 0)
       return message.warning("无内容可保存");
 
-    // 清洗 undefined
     const cleanNodes = JSON.parse(JSON.stringify(currentNodes));
     const cleanEdges = JSON.parse(JSON.stringify(currentEdges));
 
@@ -316,11 +308,9 @@ const SOPEditor = ({ user, projectId, onBack }) => {
     }
   };
 
-  // 辅助数据
   const currentEditNode = allNodesWithCode.find((n) => n.id === editingNodeId);
   const jumpTargets = allNodesWithCode.filter((n) => n.id !== editingNodeId);
 
-  // 渲染自动保存状态
   const renderSaveStatus = () => {
     if (saveStatus === "saving")
       return (
@@ -405,7 +395,7 @@ const SOPEditor = ({ user, projectId, onBack }) => {
 
       {/* 主体布局 */}
       <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
-        {/* 左侧: 目录树 (功能已修复) */}
+        {/* 左侧: 目录树 */}
         <div
           style={{
             width: leftWidth,
@@ -428,14 +418,20 @@ const SOPEditor = ({ user, projectId, onBack }) => {
           </div>
           <div style={{ flex: 1, overflow: "auto", padding: 8 }}>
             {sopData.nodes.length === 0 ? (
-              <Button
-                icon={<PlusOutlined />}
-                onClick={handleCreateRoot}
-                type="dashed"
-                block
-              >
-                创建根节点
-              </Button>
+              <div style={{ padding: 20, textAlign: "center" }}>
+                <Empty
+                  image={Empty.PRESENTED_IMAGE_SIMPLE}
+                  description="暂无节点"
+                />
+                <Button
+                  icon={<PlusOutlined />}
+                  onClick={handleCreateRoot}
+                  type="dashed"
+                  style={{ marginTop: 16 }}
+                >
+                  创建根节点
+                </Button>
+              </div>
             ) : (
               <Tree
                 className="draggable-tree"
@@ -448,7 +444,6 @@ const SOPEditor = ({ user, projectId, onBack }) => {
                 onDrop={onTreeDrop}
                 blockNode
                 showLine={{ showLeafIcon: false }}
-                // --- 关键修复：恢复了 titleRender ---
                 titleRender={(nodeData) => {
                   const nodeItem = allNodesWithCode.find(
                     (n) => n.id === nodeData.key
@@ -523,7 +518,7 @@ const SOPEditor = ({ user, projectId, onBack }) => {
           onResize={(d) => setLeftWidth((p) => Math.max(minWidth, p + d))}
         />
 
-        {/* 中间: 画布 */}
+        {/* 中间: 画布 + 视图切换按钮 (已恢复!) */}
         <div
           style={{
             flex: 1,
@@ -533,35 +528,84 @@ const SOPEditor = ({ user, projectId, onBack }) => {
             position: "relative",
           }}
         >
-          <div style={{ flex: 1 }}>
-            {viewMode === "canvas" ? (
-              <SOPCanvasView
-                sopData={sopData}
-                visibleNodes={visibleNodesForCanvas}
-                allNodesWithCode={allNodesWithCode}
-                collapsedNodeIds={collapsedNodeIds}
-                editingNodeId={editingNodeId}
-                setRfInstance={setRfInstance}
-                handleNodeSelect={handleNodeSelect}
-                toggleNodeCollapse={toggleNodeCollapse}
-                layoutDeps={[
-                  leftWidth,
-                  rightWidth,
-                  editingNodeId,
-                  expandedKeys,
-                  collapsedNodeIds,
-                ]}
-              />
+          {/* 恢复：视图切换浮窗 */}
+          {sopData.nodes.length > 0 && (
+            <div
+              style={{
+                position: "absolute",
+                top: 16,
+                left: "50%",
+                transform: "translateX(-50%)",
+                zIndex: 100,
+                background: "#fff",
+                padding: 4,
+                borderRadius: 8,
+                boxShadow: "0 2px 8px rgba(0,0,0,0.1)",
+              }}
+            >
+              <Radio.Group
+                value={viewMode}
+                onChange={(e) => setViewMode(e.target.value)}
+                buttonStyle="solid"
+              >
+                <Radio.Button value="canvas">
+                  <AppstoreOutlined /> 画布
+                </Radio.Button>
+                <Radio.Button value="text">
+                  <FileTextOutlined /> 文档
+                </Radio.Button>
+              </Radio.Group>
+            </div>
+          )}
+
+          <div style={{ flex: 1, position: "relative" }}>
+            {sopData.nodes.length > 0 ? (
+              viewMode === "canvas" ? (
+                <SOPCanvasView
+                  sopData={sopData}
+                  visibleNodes={visibleNodesForCanvas}
+                  allNodesWithCode={allNodesWithCode}
+                  collapsedNodeIds={collapsedNodeIds}
+                  editingNodeId={editingNodeId}
+                  setRfInstance={setRfInstance}
+                  handleNodeSelect={handleNodeSelect}
+                  toggleNodeCollapse={toggleNodeCollapse}
+                  layoutDeps={[
+                    leftWidth,
+                    rightWidth,
+                    editingNodeId,
+                    expandedKeys,
+                    collapsedNodeIds,
+                  ]}
+                />
+              ) : (
+                <SOPTextView
+                  nodes={allNodesWithCode}
+                  edges={sopData.edges}
+                  flowMeta={flowMeta}
+                  selectedId={editingNodeId}
+                  onSelect={handleNodeSelect}
+                  collapsedNodeIds={collapsedNodeIds}
+                  toggleNodeCollapse={toggleNodeCollapse}
+                />
+              )
             ) : (
-              <SOPTextView
-                nodes={allNodesWithCode}
-                edges={sopData.edges}
-                flowMeta={flowMeta}
-                selectedId={editingNodeId}
-                onSelect={handleNodeSelect}
-                collapsedNodeIds={collapsedNodeIds}
-                toggleNodeCollapse={toggleNodeCollapse}
-              />
+              // 恢复：中间空状态引导
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "center",
+                  alignItems: "center",
+                  height: "100%",
+                  flexDirection: "column",
+                  color: "#999",
+                }}
+              >
+                <PartitionOutlined
+                  style={{ fontSize: 48, marginBottom: 16, color: "#e0e0e0" }}
+                />
+                <div>请先在左侧目录创建流程</div>
+              </div>
             )}
           </div>
         </div>
