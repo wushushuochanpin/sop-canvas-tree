@@ -212,12 +212,42 @@ const ProjectList = ({ user, onSelectProject }) => {
         />
       )}
 
+      {/* 修改这里：空状态增加按钮 */}
       {!loading && projects.length === 0 && (
-        <div style={{ textAlign: "center", marginTop: 100, color: "#999" }}>
+        <div
+          style={{
+            textAlign: "center",
+            marginTop: 80,
+            padding: "40px",
+            background: "#fff",
+            borderRadius: 8,
+            border: "1px dashed #e0e0e0",
+          }}
+        >
           <FileTextOutlined
-            style={{ fontSize: 64, marginBottom: 16, color: "#eee" }}
+            style={{ fontSize: 64, marginBottom: 24, color: "#e6f7ff" }}
           />
-          <p>暂无项目，点击右上角新建</p>
+          <Title level={4} style={{ marginBottom: 16 }}>
+            还没有创建任何流程
+          </Title>
+          <p style={{ color: "#999", marginBottom: 32 }}>
+            点击下方按钮，开始您的第一个 SOP 流程设计
+          </p>
+
+          <Button
+            type="primary"
+            size="large"
+            icon={<PlusOutlined />}
+            onClick={handleCreateNew}
+            style={{
+              height: 48,
+              paddingLeft: 32,
+              paddingRight: 32,
+              fontSize: 16,
+            }}
+          >
+            立即创建新流程
+          </Button>
         </div>
       )}
     </div>
