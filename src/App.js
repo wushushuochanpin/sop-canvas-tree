@@ -312,23 +312,31 @@ const SOPEditorLayout = () => {
   };
 
   // --- 【核心修改】保存到 Firebase ---
+  // --- 【修改】全局保存：清洗 undefined 数据 ---
   const handleGlobalSave = async () => {
     if (sopData.nodes.length === 0) {
       message.warning("没有内容可保存");
       return;
     }
 
+    // 1. 深拷贝并清洗 undefined
+    // JSON.stringify 会自动忽略 value 为 undefined 的字段
+    // 这样 Firebase 就不会报错了
+    const cleanNodes = JSON.parse(JSON.stringify(sopData.nodes));
+    const cleanEdges = JSON.parse(JSON.stringify(sopData.edges));
+    const cleanMeta = JSON.parse(JSON.stringify(flowMeta));
+
     const saveData = {
-      meta: flowMeta,
-      nodes: sopData.nodes,
-      edges: sopData.edges,
+      meta: cleanMeta,
+      nodes: cleanNodes,
+      edges: cleanEdges,
       updatedAt: new Date().toISOString(),
     };
 
     try {
       message.loading({ content: "正在保存到云端...", key: "saveMsg" });
 
-      // 写入 Firestore: 集合 "projects", 文档 PROJECT_DOC_ID
+      // 写入 Firestore
       await setDoc(doc(db, "projects", PROJECT_DOC_ID), saveData);
 
       message.success({
@@ -339,11 +347,6 @@ const SOPEditorLayout = () => {
       console.error(err);
       message.error({ content: "保存失败: " + err.message, key: "saveMsg" });
     }
-  };
-
-  // 更新流程元数据
-  const handleUpdateFlowMeta = (newMeta) => {
-    setFlowMeta((prev) => ({ ...prev, ...newMeta }));
   };
 
   // 重置画布
