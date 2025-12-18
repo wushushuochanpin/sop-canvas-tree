@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Typography, Tag, Divider, Empty, Switch } from "antd";
 import {
   RightOutlined,
@@ -10,7 +10,7 @@ import {
   LinkOutlined,
 } from "@ant-design/icons";
 
-const { Title, Text: AntText, Paragraph } = Typography;
+const { Title, Text: AntText } = Typography;
 
 const LEVEL_COLORS = [
   "#1677ff",
@@ -30,7 +30,17 @@ const SOPTextView = ({
   collapsedNodeIds,
   toggleNodeCollapse,
 }) => {
-  const [enableIndent, setEnableIndent] = useState(true);
+  // --- 核心修改：增加记忆功能 ---
+  const [enableIndent, setEnableIndent] = useState(() => {
+    // 从本地存储读取，默认为 true
+    const stored = localStorage.getItem("SOP_DOC_INDENT");
+    return stored === null ? true : stored === "true";
+  });
+
+  // 监听变化并保存
+  useEffect(() => {
+    localStorage.setItem("SOP_DOC_INDENT", enableIndent);
+  }, [enableIndent]);
 
   if (!nodes || nodes.length === 0) {
     return (
@@ -141,7 +151,6 @@ const SOPTextView = ({
 
         <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
           {visibleContentNodes.map((node) => {
-            // 获取跳转目标信息
             let jumpTargetText = null;
             if (node.data.jumpTargetId) {
               const target = nodes.find((n) => n.id === node.data.jumpTargetId);
@@ -263,7 +272,6 @@ const SOPTextView = ({
                       {node.data.label || "(未命名)"}
                     </span>
 
-                    {/* 跳转展示文字 (不可点击) */}
                     {jumpTargetText && (
                       <Tag
                         icon={<LinkOutlined />}

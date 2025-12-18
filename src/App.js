@@ -9,7 +9,6 @@ import ProjectList from "./components/ProjectList";
 import SOPEditor from "./components/SOPEditor";
 import FloatingWatermark from "./components/FloatingWatermark";
 
-const { Content } = Layout;
 const { Title } = Typography;
 
 const App = () => {
@@ -107,6 +106,8 @@ const App = () => {
         user={user}
         projectId={currentProjectId}
         onBack={() => setCurrentProjectId(null)} // 返回列表
+        // --- 核心修改：接收新项目ID并跳转 ---
+        onProjectChange={(newId) => setCurrentProjectId(newId)}
       />
     );
   };

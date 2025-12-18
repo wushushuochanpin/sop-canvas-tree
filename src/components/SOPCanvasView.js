@@ -21,9 +21,8 @@ import {
 } from "@ant-design/icons";
 
 // --- 常量定义 ---
-// 尺寸缩小：更紧凑
-const NODE_WIDTH = 120;
-const NODE_HEIGHT = 45;
+const NODE_WIDTH = 160;
+const NODE_HEIGHT = 42;
 
 // --- 内置布局算法 ---
 const getLayoutedElements = (nodes, edges, direction = "TB") => {
@@ -32,7 +31,6 @@ const getLayoutedElements = (nodes, edges, direction = "TB") => {
 
   dagreGraph.setGraph({
     rankdir: direction,
-    // 节点变小了，间距也可以相应缩小
     nodesep: direction === "TB" ? 40 : 30,
     ranksep: direction === "TB" ? 40 : 60,
   });
@@ -108,10 +106,8 @@ const ReactFlowWrapper = ({
       fitView
       attributionPosition="bottom-right"
     >
-      {/* 背景改为极淡的蓝色圆点，呼应蓝色主题 */}
       <Background color="#e6f7ff" gap={20} size={1} />
 
-      {/* 控件样式：稍微圆润一点，淡蓝色边框 */}
       <Controls
         showInteractive={false}
         style={{
@@ -122,7 +118,6 @@ const ReactFlowWrapper = ({
         }}
       />
 
-      {/* 布局切换面板 */}
       <Panel
         position="top-left"
         style={{
@@ -168,7 +163,15 @@ const SOPCanvasView = ({
   toggleNodeCollapse,
   layoutDeps,
 }) => {
-  const [layoutDirection, setLayoutDirection] = useState("TB");
+  // --- 核心修改：增加记忆功能 ---
+  const [layoutDirection, setLayoutDirection] = useState(() => {
+    return localStorage.getItem("SOP_CANVAS_DIRECTION") || "TB";
+  });
+
+  // 监听变化并保存
+  useEffect(() => {
+    localStorage.setItem("SOP_CANVAS_DIRECTION", layoutDirection);
+  }, [layoutDirection]);
 
   const { nodes: rfNodes, edges: rfEdges } = useMemo(() => {
     const flowNodes = visibleNodes.map((n) => {
@@ -177,7 +180,6 @@ const SOPCanvasView = ({
       const isCollapsed = collapsedNodeIds.has(n.id);
       const isSelected = n.id === editingNodeId;
 
-      // 跳转信息
       let jumpInfo = null;
       if (n.data.jumpTargetId) {
         const target = allNodesWithCode.find(
@@ -203,17 +205,16 @@ const SOPCanvasView = ({
                 display: "flex",
                 flexDirection: "row",
                 alignItems: "center",
-                padding: "0 8px", // 内边距减小
+                padding: "0 8px",
                 boxSizing: "border-box",
                 gap: 8,
               }}
             >
-              {/* 1. 序号 (Code) - 淡蓝底深蓝字，圆角 */}
               <div
                 style={{
                   flexShrink: 0,
-                  background: "#e6f7ff", // 极淡蓝
-                  color: "#1677ff", // 品牌蓝
+                  background: "#e6f7ff",
+                  color: "#1677ff",
                   border: "1px solid #bae0ff",
                   fontSize: 10,
                   fontWeight: "bold",
@@ -230,17 +231,16 @@ const SOPCanvasView = ({
                 {n.computedCode}
               </div>
 
-              {/* 2. 标题文字 - 超出省略 */}
               <div
                 style={{
                   flex: 1,
                   display: "flex",
                   alignItems: "center",
-                  overflow: "hidden", // 关键：超出隐藏
+                  overflow: "hidden",
                 }}
               >
                 <Tooltip
-                  title={n.data.label} // Hover 显示完整内容
+                  title={n.data.label}
                   placement="top"
                   mouseEnterDelay={0.3}
                 >
@@ -248,13 +248,13 @@ const SOPCanvasView = ({
                     style={{
                       fontSize: 12,
                       fontWeight: 500,
-                      color: isDraft ? "#bfbfbf" : "#333", // 文字颜色保持深灰，保证阅读性
+                      color: isDraft ? "#bfbfbf" : "#333",
                       fontFamily:
                         '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-                      whiteSpace: "nowrap", // 关键：不换行
-                      overflow: "hidden", // 关键：超出隐藏
-                      textOverflow: "ellipsis", // 关键：省略号
-                      width: "100%", // 确保占满 flex 剩余空间
+                      whiteSpace: "nowrap",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      width: "100%",
                       display: "block",
                     }}
                   >
@@ -263,9 +263,7 @@ const SOPCanvasView = ({
                 </Tooltip>
               </div>
 
-              {/* 3. 图标区 (右侧) */}
               <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                {/* 数据图标 */}
                 {Object.keys(n.aggregatedData).length > 0 && (
                   <Tooltip title="存在随路数据">
                     <DatabaseOutlined
@@ -273,8 +271,6 @@ const SOPCanvasView = ({
                     />
                   </Tooltip>
                 )}
-
-                {/* 跳转指示 - 蓝色小箭头 */}
                 {jumpInfo && (
                   <Tooltip title={`跳转至 ${jumpInfo.code}`}>
                     <div
@@ -293,8 +289,6 @@ const SOPCanvasView = ({
                     </div>
                   </Tooltip>
                 )}
-
-                {/* 折叠/展开 - 蓝色加减号 */}
                 {hasChildren && (
                   <div
                     className="nodrag"
@@ -326,9 +320,8 @@ const SOPCanvasView = ({
           width: NODE_WIDTH,
           height: NODE_HEIGHT,
           background: "#fff",
-          // 边框逻辑：选中深蓝粗框，未选中淡蓝细框
           border: isSelected ? "2px solid #1677ff" : "1px solid #91caff",
-          borderRadius: 6, // 圆角 6px
+          borderRadius: 6,
           boxShadow: isSelected ? "0 0 0 2px rgba(22, 119, 255, 0.1)" : "none",
           padding: 0,
           cursor: "default",
@@ -345,14 +338,14 @@ const SOPCanvasView = ({
     let flowEdges = rawEdges.map((e) => ({
       ...e,
       type: "smoothstep",
-      pathOptions: { borderRadius: 4 }, // 连线圆角稍小，匹配节点尺寸
+      pathOptions: { borderRadius: 4 },
       animated: false,
-      style: { stroke: "#91caff", strokeWidth: 1 }, // 连线改为淡蓝色
+      style: { stroke: "#91caff", strokeWidth: 1 },
       markerEnd: {
         type: MarkerType.ArrowClosed,
         width: 5,
         height: 5,
-        color: "#91caff", // 箭头同色
+        color: "#91caff",
       },
     }));
 

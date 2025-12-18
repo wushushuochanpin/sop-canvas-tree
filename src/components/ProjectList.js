@@ -1,21 +1,25 @@
 import React, { useEffect, useState } from "react";
 import {
-  List,
-  Card,
+  Table,
   Button,
   Typography,
   Tag,
-  Space,
   message,
   Modal,
-  Spin,
+  Space,
+  Select,
+  Avatar,
+  Tooltip,
 } from "antd";
 import {
   PlusOutlined,
-  FileTextOutlined,
   DeleteOutlined,
+  EditOutlined,
+  CopyOutlined,
   UserOutlined,
-  ClockCircleOutlined,
+  SearchOutlined,
+  FileTextOutlined,
+  HistoryOutlined, // <--- 新增 HistoryOutlined
 } from "@ant-design/icons";
 import {
   collection,
@@ -24,57 +28,71 @@ import {
   getDocs,
   deleteDoc,
   doc,
-  orderBy,
+  setDoc,
+  getDoc,
 } from "firebase/firestore";
 import { db } from "../firebase";
 import { v4 as uuidv4 } from "uuid";
-import UserAuth from "./UserAuth"; // 引入头部用户信息组件
+import UserAuth from "./UserAuth";
+// 引入历史弹窗组件
+import VersionHistoryModal from "./VersionHistoryModal";
 
 const { Title, Text } = Typography;
+const { Option } = Select;
 
-// --- 管理员账号配置 ---
 const ADMIN_EMAIL = "zjunxu1989@gmail.com";
 
 const ProjectList = ({ user, onSelectProject }) => {
   const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [allUsers, setAllUsers] = useState([]);
+  const [selectedUserId, setSelectedUserId] = useState(user.uid);
 
-  // 判断是否是管理员
+  // --- 历史弹窗状态 ---
+  const [historyVisible, setHistoryVisible] = useState(false);
+  const [currentHistoryId, setCurrentHistoryId] = useState(null);
+
   const isAdmin = user?.email === ADMIN_EMAIL;
 
-  // 1. 加载项目列表
+  // 1. 加载用户
+  useEffect(() => {
+    const fetchUsers = async () => {
+      if (!isAdmin) return;
+      try {
+        const usersRef = collection(db, "users");
+        const snapshot = await getDocs(usersRef);
+        const list = [];
+        snapshot.forEach((doc) => list.push(doc.data()));
+        setAllUsers(list);
+      } catch (error) {
+        console.error(error);
+      }
+    };
+    fetchUsers();
+  }, [isAdmin]);
+
+  // 2. 加载项目
   const fetchProjects = async () => {
     try {
       setLoading(true);
       const projectsRef = collection(db, "projects");
       let q;
-
       if (isAdmin) {
-        // 管理员：看所有，按时间倒序
-        // 注意：如果报错 "requires an index"，去 Firebase 控制台点一下生成的链接创建索引即可
-        // 这里先做简单的客户端排序，避免索引报错
-        q = query(projectsRef);
+        q =
+          selectedUserId === "ALL"
+            ? query(projectsRef)
+            : query(projectsRef, where("ownerId", "==", selectedUserId));
       } else {
-        // 普通用户：只看自己的
         q = query(projectsRef, where("ownerId", "==", user.uid));
       }
-
       const querySnapshot = await getDocs(q);
       const list = [];
-      querySnapshot.forEach((doc) => {
-        list.push({ id: doc.id, ...doc.data() });
-      });
-
-      // 客户端排序 (按更新时间倒序)
-      list.sort((a, b) => {
-        const t1 = a.updatedAt || "0";
-        const t2 = b.updatedAt || "0";
-        return t1 < t2 ? 1 : -1;
-      });
-
+      querySnapshot.forEach((doc) => list.push({ id: doc.id, ...doc.data() }));
+      list.sort((a, b) =>
+        (a.updatedAt || "0") < (b.updatedAt || "0") ? 1 : -1
+      );
       setProjects(list);
     } catch (error) {
-      console.error("加载失败", error);
       message.error("加载列表失败");
     } finally {
       setLoading(false);
@@ -83,43 +101,162 @@ const ProjectList = ({ user, onSelectProject }) => {
 
   useEffect(() => {
     if (user) fetchProjects();
-  }, [user]);
+  }, [user, selectedUserId]);
 
-  // 2. 删除项目
-  const handleDelete = async (e, projectId) => {
-    e.stopPropagation(); // 阻止冒泡
+  // Actions
+  const handleDelete = async (projectId) => {
     Modal.confirm({
       title: "确认删除?",
-      content: "删除后无法恢复，确定要删除这个流程吗？",
+      content: "无法恢复，确定删除吗？",
       okType: "danger",
       onOk: async () => {
         try {
           await deleteDoc(doc(db, "projects", projectId));
           message.success("已删除");
-          fetchProjects(); // 刷新列表
-        } catch (error) {
+          fetchProjects();
+        } catch (e) {
           message.error("删除失败");
         }
       },
     });
   };
 
-  // 3. 新建项目
-  const handleCreateNew = () => {
-    const newId = uuidv4();
-    // 直接进入编辑器，由编辑器负责初始化数据
-    onSelectProject(newId);
+  const handleCopy = async (project) => {
+    try {
+      message.loading({ content: "复制中...", key: "copy" });
+      const sourceDoc = await getDoc(doc(db, "projects", project.id));
+      if (!sourceDoc.exists()) throw new Error("源文件不存在");
+      const sourceData = sourceDoc.data();
+      const newId = uuidv4();
+      const newProjectData = {
+        ...sourceData,
+        id: newId,
+        meta: {
+          ...sourceData.meta,
+          name: `${sourceData.meta?.name || "未命名"}_副本`,
+          id: newId,
+        },
+        ownerId: user.uid,
+        ownerEmail: user.email,
+        updatedAt: new Date().toISOString(),
+        latestVersion: 1,
+      };
+      await setDoc(doc(db, "projects", newId), newProjectData);
+      message.success({ content: "复制成功", key: "copy" });
+      fetchProjects();
+    } catch (e) {
+      message.error({ content: "复制失败", key: "copy" });
+    }
   };
+
+  const handleCreateNew = () => {
+    onSelectProject(uuidv4());
+  };
+
+  // 打开历史记录
+  const showHistory = (e, projectId) => {
+    e.stopPropagation();
+    setCurrentHistoryId(projectId);
+    setHistoryVisible(true);
+  };
+
+  const columns = [
+    {
+      title: "项目名称",
+      dataIndex: ["meta", "name"],
+      key: "name",
+      render: (text, record) => (
+        <Space>
+          <FileTextOutlined style={{ color: "#1890ff", fontSize: 18 }} />
+          <a
+            onClick={() => onSelectProject(record.id)}
+            style={{ fontWeight: 600, fontSize: 15, color: "#1f1f1f" }}
+          >
+            {text || "未命名流程"}
+          </a>
+        </Space>
+      ),
+    },
+    {
+      title: "当前版本",
+      dataIndex: "latestVersion",
+      key: "version",
+      width: 100,
+      render: (v) => <Tag color="blue">v{v || 1}</Tag>,
+    },
+    {
+      title: "最后修改时间",
+      dataIndex: "updatedAt",
+      key: "updatedAt",
+      width: 180,
+      render: (text) => (text ? new Date(text).toLocaleString() : "-"),
+    },
+    {
+      title: "所属用户",
+      key: "owner",
+      width: 200,
+      render: (_, record) => (
+        <Space>
+          <Avatar
+            style={{ backgroundColor: "#87d068" }}
+            icon={<UserOutlined />}
+            size="small"
+          />
+          <Text style={{ fontSize: 12 }}>
+            {record.ownerEmail?.split("@")[0] || "Unknown"}
+          </Text>
+        </Space>
+      ),
+    },
+    {
+      title: "操作",
+      key: "action",
+      width: 180, // 加宽一点
+      render: (_, record) => (
+        <Space size="small">
+          <Tooltip title="编辑">
+            <Button
+              type="text"
+              icon={<EditOutlined />}
+              onClick={() => onSelectProject(record.id)}
+            />
+          </Tooltip>
+          {/* 新增：历史记录按钮 */}
+          <Tooltip title="查看版本日志">
+            <Button
+              type="text"
+              icon={<HistoryOutlined />}
+              onClick={(e) => showHistory(e, record.id)}
+            />
+          </Tooltip>
+          <Tooltip title="复制副本">
+            <Button
+              type="text"
+              icon={<CopyOutlined />}
+              onClick={() => handleCopy(record)}
+            />
+          </Tooltip>
+          <Tooltip title="删除">
+            <Button
+              type="text"
+              danger
+              icon={<DeleteOutlined />}
+              onClick={() => handleDelete(record.id)}
+            />
+          </Tooltip>
+        </Space>
+      ),
+    },
+  ];
 
   return (
     <div style={{ padding: "24px 40px", maxWidth: 1200, margin: "0 auto" }}>
-      {/* 顶部栏 */}
       <div
         style={{
           display: "flex",
           justifyContent: "space-between",
           alignItems: "center",
-          marginBottom: 32,
+          marginBottom: 24,
         }}
       >
         <div>
@@ -127,25 +264,37 @@ const ProjectList = ({ user, onSelectProject }) => {
             SOP 配置控制台
           </Title>
           <Text type="secondary">
-            {isAdmin ? <Tag color="red">管理员视图</Tag> : "我的工作台"}
+            {isAdmin ? <Tag color="red">管理员视图</Tag> : "我的工作台"}{" "}
             {user.displayName}
           </Text>
         </div>
-
-        {/* 这里复用 UserAuth，但只作为展示和退出用 */}
-        {/* 实际上 App.js 会处理登录状态，这里 UserAuth 只要能显示头像就行 */}
-        {/* 为了简单，我们直接显示一个“新建”按钮，退出在头像里 */}
         <div style={{ display: "flex", gap: 16, alignItems: "center" }}>
+          {isAdmin && (
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <SearchOutlined style={{ color: "#999" }} />
+              <Select
+                value={selectedUserId}
+                onChange={setSelectedUserId}
+                style={{ width: 180 }}
+                placeholder="筛选用户"
+              >
+                <Option value={user.uid}>我的项目</Option>
+                <Option value="ALL">全部用户的项目</Option>
+                {allUsers.map((u) => (
+                  <Option key={u.uid} value={u.uid}>
+                    {u.displayName || u.email}
+                  </Option>
+                ))}
+              </Select>
+            </div>
+          )}
           <Button
             type="primary"
             icon={<PlusOutlined />}
             onClick={handleCreateNew}
-            size="large"
           >
             新建流程
           </Button>
-          {/* 这里的 UserAuth 会通过 onUserChange 传给 App.js，让 App.js 处理登出逻辑 */}
-          {/* 但因为 UserAuth 内部是用 firebase auth 监听的，App.js 也会自动感知 */}
           <div
             style={{
               border: "1px solid #eee",
@@ -159,97 +308,21 @@ const ProjectList = ({ user, onSelectProject }) => {
         </div>
       </div>
 
-      {/* 列表区域 */}
-      {loading ? (
-        <div style={{ textAlign: "center", marginTop: 100 }}>
-          <Spin size="large" tip="加载数据中..." />
-        </div>
-      ) : (
-        <List
-          grid={{ gutter: 16, xs: 1, sm: 2, md: 3, lg: 3, xl: 4 }}
-          dataSource={projects}
-          renderItem={(item) => (
-            <List.Item>
-              <Card
-                hoverable
-                onClick={() => onSelectProject(item.id)}
-                actions={[
-                  <span key="time" style={{ fontSize: 12, color: "#999" }}>
-                    <ClockCircleOutlined />{" "}
-                    {new Date(item.updatedAt).toLocaleDateString()}
-                  </span>,
-                  <DeleteOutlined
-                    key="delete"
-                    style={{ color: "red" }}
-                    onClick={(e) => handleDelete(e, item.id)}
-                  />,
-                ]}
-              >
-                <Card.Meta
-                  avatar={
-                    <FileTextOutlined
-                      style={{ fontSize: 24, color: "#1890ff" }}
-                    />
-                  }
-                  title={item.meta?.name || "未命名流程"}
-                  description={
-                    <div style={{ fontSize: 12, color: "#666" }}>
-                      <div style={{ marginBottom: 4 }}>
-                        ID: {item.id.slice(0, 6)}...
-                      </div>
-                      {/* 如果是管理员，显示一下是谁创建的 */}
-                      {isAdmin && item.ownerEmail && (
-                        <Tag color="orange" style={{ margin: 0 }}>
-                          {item.ownerEmail.split("@")[0]}
-                        </Tag>
-                      )}
-                    </div>
-                  }
-                />
-              </Card>
-            </List.Item>
-          )}
-        />
-      )}
+      <Table
+        columns={columns}
+        dataSource={projects}
+        rowKey="id"
+        loading={loading}
+        pagination={{ pageSize: 10 }}
+        style={{ background: "#fff", borderRadius: 8, overflow: "hidden" }}
+      />
 
-      {/* 修改这里：空状态增加按钮 */}
-      {!loading && projects.length === 0 && (
-        <div
-          style={{
-            textAlign: "center",
-            marginTop: 80,
-            padding: "40px",
-            background: "#fff",
-            borderRadius: 8,
-            border: "1px dashed #e0e0e0",
-          }}
-        >
-          <FileTextOutlined
-            style={{ fontSize: 64, marginBottom: 24, color: "#e6f7ff" }}
-          />
-          <Title level={4} style={{ marginBottom: 16 }}>
-            还没有创建任何流程
-          </Title>
-          <p style={{ color: "#999", marginBottom: 32 }}>
-            点击下方按钮，开始您的第一个 SOP 流程设计
-          </p>
-
-          <Button
-            type="primary"
-            size="large"
-            icon={<PlusOutlined />}
-            onClick={handleCreateNew}
-            style={{
-              height: 48,
-              paddingLeft: 32,
-              paddingRight: 32,
-              fontSize: 16,
-            }}
-          >
-            立即创建新流程
-          </Button>
-        </div>
-      )}
+      {/* 挂载历史弹窗 */}
+      <VersionHistoryModal
+        projectId={currentHistoryId}
+        visible={historyVisible}
+        onClose={() => setHistoryVisible(false)}
+      />
     </div>
   );
 };
